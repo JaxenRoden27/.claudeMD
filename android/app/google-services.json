@@ -12,7 +12,20 @@
           "package_name": "com.example.claude_md_final"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "59329920834-7f6343hmalmj24v5amvjundv66la8qg5.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.claude_md_final",
+            "certificate_hash": "9b6f0665b1f5c513b935968bb9c769d9336cbab2"
+          }
+        },
+        {
+          "client_id": "59329920834-jgas4dced0u12m4keq1gp6ku00gecppf.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyBKIceWbMwmlZvzhfexL3qa-9OSrZRvhdQ"
@@ -20,7 +33,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "59329920834-jgas4dced0u12m4keq1gp6ku00gecppf.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
