@@ -1,1 +1,29 @@
-{}
+{
+  "project_info": {
+    "project_number": "59329920834",
+    "project_id": "claude-md-final",
+    "storage_bucket": "claude-md-final.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:59329920834:android:f764505cd052f33b4592db",
+        "android_client_info": {
+          "package_name": "com.example.claude_md_final"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBKIceWbMwmlZvzhfexL3qa-9OSrZRvhdQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
