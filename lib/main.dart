@@ -6,7 +6,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import 'auth/auth_wrapper.dart';
 import 'chat/chat_page.dart';
-import 'chat/protocol/signal_fcm_coordinator.dart';
+import 'signal/signal_fcm_coordinator.dart';
 import 'firebase_options.dart';
 
 Future<void> main() async {
