@@ -7,11 +7,11 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../services/app_feature_services.dart';
 import '../auth/auth_service.dart';
-import '../firebase_options.dart';
-import 'protocol/signal_fcm_coordinator.dart';
-import 'protocol/signal_message_repository.dart';
-import 'protocol/signal_models.dart';
-import 'protocol/signal_service.dart';
+import '../models/app_bootstrap_state.dart';
+import '../signal/signal_fcm_coordinator.dart';
+import '../signal/signal_message_repository.dart';
+import '../signal/signal_models.dart';
+import '../signal/signal_service.dart';
 
 // Colors and Constants moved from main.dart
 const _balticBlue = Color(0xFF33658A);
@@ -30,22 +30,7 @@ const _textSecondaryDark = Color(0xFFD1D5DB);
 const _borderDark = Color(0xFF374151);
 const _imageMessagePrefix = '[image] ';
 
-class AppBootstrapState {
-  const AppBootstrapState({
-    required this.firebaseReady,
-    required this.messagingReady,
-    this.warning,
-  });
-
-  const AppBootstrapState.firebaseUnavailable()
-    : firebaseReady = false,
-      messagingReady = false,
-      warning = 'Firebase is not available on this build.';
-
-  final bool firebaseReady;
-  final bool messagingReady;
-  final String? warning;
-}
+// AppBootstrapState moved to models/app_bootstrap_state.dart
 
 class ChatPage extends StatefulWidget {
   const ChatPage({

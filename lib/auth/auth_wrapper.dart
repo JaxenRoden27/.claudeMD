@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'auth_service.dart';
 import 'login_page.dart';
+import '../models/app_bootstrap_state.dart';
 import '../chat/chat_page.dart';
 
 class AuthWrapper extends StatelessWidget {
