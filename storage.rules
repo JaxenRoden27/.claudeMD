@@ -1,0 +1,23 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isConversationMember(conversationId) {
+      return signedIn() &&
+        request.auth.uid in firestore.get(
+          /databases/(default)/documents/conversations/$(conversationId)
+        ).data.participantUserIds;
+    }
+
+    match /attachments/{conversationId}/{messageId}/{attachmentId} {
+      allow read: if isConversationMember(conversationId);
+      allow write: if isConversationMember(conversationId)
+        && request.resource != null
+        && request.resource.size < 50 * 1024 * 1024;
+    }
+  }
+}
