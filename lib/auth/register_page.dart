@@ -70,111 +70,121 @@ class _RegisterPageState extends State<RegisterPage> {
           ),
         ),
         child: SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                const Icon(Icons.person_add_rounded, size: 80, color: Color(0xFF33658A)),
-                const SizedBox(height: 20),
-                Text(
-                  'Join Cipher Courier',
-                  style: GoogleFonts.spaceGrotesk(
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                    color: isDark ? Colors.white : const Color(0xFF1F2933),
-                  ),
-                ),
-                Text(
-                  'Create your secure account today.',
-                  style: GoogleFonts.inter(
-                    fontSize: 16,
-                    color: isDark ? Colors.white70 : Colors.black54,
-                  ),
-                ),
-                const SizedBox(height: 50),
-
-                Container(
-                  padding: const EdgeInsets.all(30),
-                  decoration: BoxDecoration(
-                    color: isDark 
-                        ? Colors.white.withValues(alpha: 0.05) 
-                        : Colors.white.withValues(alpha: 0.7),
-                    borderRadius: BorderRadius.circular(30),
-                    border: Border.all(
-                      color: isDark 
-                          ? Colors.white.withValues(alpha: 0.1) 
-                          : Colors.white.withValues(alpha: 0.3),
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.1),
-                        blurRadius: 20,
-                        offset: const Offset(0, 10),
-                      ),
-                    ],
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minHeight: constraints.maxHeight - 40,
                   ),
                   child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      _buildTextField(
-                        controller: _emailController,
-                        label: 'Email Address',
-                        icon: Icons.email_outlined,
-                        isDark: isDark,
-                      ),
+                      const Icon(Icons.person_add_rounded, size: 80, color: Color(0xFF33658A)),
                       const SizedBox(height: 20),
-                      _buildTextField(
-                        controller: _passwordController,
-                        label: 'Create Password',
-                        icon: Icons.lock_outline_rounded,
-                        isDark: isDark,
-                        isPassword: true,
-                      ),
-                      const SizedBox(height: 20),
-                      _buildTextField(
-                        controller: _confirmPasswordController,
-                        label: 'Confirm Password',
-                        icon: Icons.lock_reset_rounded,
-                        isDark: isDark,
-                        isPassword: true,
-                      ),
-                      const SizedBox(height: 30),
-                      if (_errorMessage != null)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 20),
-                          child: Text(
-                            _errorMessage!,
-                            style: const TextStyle(color: Colors.redAccent, fontSize: 13),
-                            textAlign: TextAlign.center,
-                          ),
+                      Text(
+                        'Join Cipher Courier',
+                        style: GoogleFonts.spaceGrotesk(
+                          fontSize: 32,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? Colors.white : const Color(0xFF1F2933),
                         ),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 55,
-                        child: ElevatedButton(
-                          onPressed: _loading ? null : _register,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF33658A),
-                            foregroundColor: Colors.white,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(15),
-                            ),
-                            elevation: 0,
+                      ),
+                      Text(
+                        'Create your secure account today.',
+                        style: GoogleFonts.inter(
+                          fontSize: 16,
+                          color: isDark ? Colors.white70 : Colors.black54,
+                        ),
+                      ),
+                      const SizedBox(height: 40),
+
+                      Container(
+                        padding: const EdgeInsets.all(20),
+                        decoration: BoxDecoration(
+                          color: isDark 
+                              ? Colors.white.withValues(alpha: 0.05) 
+                              : Colors.white.withValues(alpha: 0.7),
+                          borderRadius: BorderRadius.circular(30),
+                          border: Border.all(
+                            color: isDark 
+                                ? Colors.white.withValues(alpha: 0.1) 
+                                : Colors.white.withValues(alpha: 0.3),
                           ),
-                          child: _loading
-                              ? const SizedBox(
-                                  width: 20,
-                                  height: 20,
-                                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                                )
-                              : const Text('Create Account', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.1),
+                              blurRadius: 20,
+                              offset: const Offset(0, 10),
+                            ),
+                          ],
+                        ),
+                        child: Column(
+                          children: [
+                            _buildTextField(
+                              controller: _emailController,
+                              label: 'Email Address',
+                              icon: Icons.email_outlined,
+                              isDark: isDark,
+                            ),
+                            const SizedBox(height: 16),
+                            _buildTextField(
+                              controller: _passwordController,
+                              label: 'Create Password',
+                              icon: Icons.lock_outline_rounded,
+                              isDark: isDark,
+                              isPassword: true,
+                            ),
+                            const SizedBox(height: 16),
+                            _buildTextField(
+                              controller: _confirmPasswordController,
+                              label: 'Confirm Password',
+                              icon: Icons.lock_reset_rounded,
+                              isDark: isDark,
+                              isPassword: true,
+                            ),
+                            const SizedBox(height: 24),
+                            if (_errorMessage != null)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 20),
+                                child: Text(
+                                  _errorMessage!,
+                                  style: const TextStyle(color: Colors.redAccent, fontSize: 13),
+                                  textAlign: TextAlign.center,
+                                ),
+                              ),
+                            SizedBox(
+                              width: double.infinity,
+                              height: 55,
+                              child: ElevatedButton(
+                                onPressed: _loading ? null : _register,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF33658A),
+                                  foregroundColor: Colors.white,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(15),
+                                  ),
+                                  elevation: 0,
+                                ),
+                                child: _loading
+                                    ? const SizedBox(
+                                        width: 20,
+                                        height: 20,
+                                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                      )
+                                    : const Text('Create Account', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ],
                   ),
                 ),
-              ],
-            ),
+              );
+            },
           ),
         ),
       ),

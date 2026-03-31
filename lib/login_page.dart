@@ -74,7 +74,7 @@ class _LoginPageState extends State<LoginPage> {
           child: LayoutBuilder(
             builder: (context, constraints) {
               return SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(horizontal: 30, vertical: 24),
+                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
                 child: ConstrainedBox(
                   constraints: BoxConstraints(
                     minHeight: constraints.maxHeight - 48, // Account for vertical padding
@@ -105,7 +105,7 @@ class _LoginPageState extends State<LoginPage> {
 
                       // Login Card with Glassmorphism feel
                       Container(
-                        padding: const EdgeInsets.all(30),
+                        padding: const EdgeInsets.all(20),
                         decoration: BoxDecoration(
                           color: isDark 
                               ? Colors.white.withValues(alpha: 0.05) 
@@ -207,8 +207,9 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                       
                       const SizedBox(height: 30),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                      Wrap(
+                        alignment: WrapAlignment.center,
+                        crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
                           Text("Don't have an account? ", style: TextStyle(color: isDark ? Colors.white70 : Colors.black54)),
                           GestureDetector(
