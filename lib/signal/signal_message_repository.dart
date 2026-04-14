@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'local_encrypted_chat_store.dart';
@@ -41,6 +43,13 @@ class SignalMessageRepository {
 
   final String localUserId;
   final String localDeviceId;
+
+  final _inboxUpdatesController = StreamController<void>.broadcast();
+  Stream<void> get inboxUpdates => _inboxUpdatesController.stream;
+
+  void dispose() {
+    _inboxUpdatesController.close();
+  }
 
   Future<void> registerCurrentDevice() {
     return _signalService.registerUserOnInstall(
@@ -313,6 +322,27 @@ class SignalMessageRepository {
     return _localStore.loadTrustRecordsForUser(peerUserId);
   }
 
+  Future<List<LocalTrustRecord>> loadAllKnownPeers() {
+    return _localStore.loadAllKnownPeers();
+  }
+
+  Future<void> ensurePeerTrust({
+    required String peerUserId,
+    required String label,
+  }) async {
+    final bundles = await _signalService.fetchActiveDeviceBundles(userId: peerUserId);
+    for (final bundle in bundles) {
+      await _localStore.upsertTrustRecord(
+        userId: bundle.userId,
+        deviceId: bundle.deviceId,
+        identityKeyHash: await _signalService.identityKeyDigest(
+          bundle.identityKeyPublicBase64,
+        ),
+        label: label,
+      );
+    }
+  }
+
   Future<bool> _storeInboundRecord(SignalDeliveryRecord record) async {
     if (await _localStore.hasDelivery(record.deliveryId)) {
       return false;
@@ -347,6 +377,7 @@ class SignalMessageRepository {
       ),
     );
 
+    _inboxUpdatesController.add(null);
     return true;
   }
 

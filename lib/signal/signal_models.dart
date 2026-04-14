@@ -195,6 +195,7 @@ class LocalTrustRecord {
     required this.verified,
     required this.firstSeenAt,
     required this.lastSeenAt,
+    this.label,
   });
 
   final String userId;
@@ -203,4 +204,5 @@ class LocalTrustRecord {
   final bool verified;
   final DateTime firstSeenAt;
   final DateTime lastSeenAt;
+  final String? label;
 }

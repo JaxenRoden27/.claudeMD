@@ -16,7 +16,7 @@ class LocalEncryptedChatStore {
   })  : _namespace = namespace,
         _secureStorage = secureStorage ?? const FlutterSecureStorage();
 
-  static const _dbVersion = 1;
+  static const _dbVersion = 2;
   static final _aes = AesGcm.with256bits();
 
   final String _namespace;
@@ -64,9 +64,15 @@ class LocalEncryptedChatStore {
             identity_key_hash TEXT NOT NULL,
             verified INTEGER NOT NULL,
             first_seen_at_millis INTEGER NOT NULL,
-            last_seen_at_millis INTEGER NOT NULL
+            last_seen_at_millis INTEGER NOT NULL,
+            label TEXT
           )
         ''');
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute('ALTER TABLE trust_state ADD COLUMN label TEXT;');
+        }
       },
     );
 
@@ -205,6 +211,7 @@ class LocalEncryptedChatStore {
     required String deviceId,
     required String identityKeyHash,
     bool verified = false,
+    String? label,
   }) async {
     final db = await _openDatabase();
     final addressKey = '$userId|$deviceId';
@@ -220,6 +227,8 @@ class LocalEncryptedChatStore {
         ? now
         : existing.first['first_seen_at_millis'] as int;
 
+    final resolvedLabel = label ?? (existing.isNotEmpty ? existing.first['label'] as String? : null);
+
     await db.insert(
       'trust_state',
       <String, Object?>{
@@ -230,6 +239,7 @@ class LocalEncryptedChatStore {
         'verified': verified ? 1 : 0,
         'first_seen_at_millis': firstSeenAt,
         'last_seen_at_millis': now,
+        'label': resolvedLabel,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
@@ -257,6 +267,33 @@ class LocalEncryptedChatStore {
             lastSeenAt: DateTime.fromMillisecondsSinceEpoch(
               row['last_seen_at_millis'] as int,
             ),
+            label: row['label'] as String?,
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  Future<List<LocalTrustRecord>> loadAllKnownPeers() async {
+    final db = await _openDatabase();
+    final rows = await db.query(
+      'trust_state',
+      orderBy: 'last_seen_at_millis DESC',
+    );
+
+    return rows
+        .map(
+          (row) => LocalTrustRecord(
+            userId: row['user_id'] as String,
+            deviceId: row['device_id'] as String,
+            identityKeyHash: row['identity_key_hash'] as String,
+            verified: (row['verified'] as int) == 1,
+            firstSeenAt: DateTime.fromMillisecondsSinceEpoch(
+              row['first_seen_at_millis'] as int,
+            ),
+            lastSeenAt: DateTime.fromMillisecondsSinceEpoch(
+              row['last_seen_at_millis'] as int,
+            ),
+            label: row['label'] as String?,
           ),
         )
         .toList(growable: false);
