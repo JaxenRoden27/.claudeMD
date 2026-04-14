@@ -1,23 +1,19 @@
-<<<<<<< HEAD
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_storage/firebase_storage.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
-import 'app_feature_services.dart';
-import 'demo_auth_service.dart';
-import 'firebase_options.dart';
-import 'signal/signal_fcm_coordinator.dart';
-import 'signal/signal_message_repository.dart';
-import 'signal/signal_models.dart';
-import 'signal/signal_service.dart';
+import '../services/app_feature_services.dart';
+import '../auth/auth_service.dart';
+import '../models/app_bootstrap_state.dart';
+import '../signal/signal_fcm_coordinator.dart';
+import '../signal/signal_message_repository.dart';
+import '../signal/signal_models.dart';
+import '../signal/signal_service.dart';
 
+// Colors and Constants moved from main.dart
 const _balticBlue = Color(0xFF33658A);
 const _skyReflection = Color(0xFF86BBD8);
 const _honeyBronze = Color(0xFFF6AE2D);
@@ -33,323 +29,34 @@ const _textPrimaryDark = Color(0xFFF9FAFB);
 const _textSecondaryDark = Color(0xFFD1D5DB);
 const _borderDark = Color(0xFF374151);
 const _imageMessagePrefix = '[image] ';
-=======
-import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
-import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 
-import 'auth/auth_wrapper.dart';
-import 'signal/signal_fcm_coordinator.dart';
-import 'models/app_bootstrap_state.dart';
-import 'firebase_options.dart';
->>>>>>> main
+// AppBootstrapState moved to models/app_bootstrap_state.dart
 
-Future<void> main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  runApp(const MyApp());
-}
-
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return _MyApp();
-  }
-}
-
-class _MyApp extends StatelessWidget {
-<<<<<<< HEAD
-  _MyApp({Future<_AppBootstrapState>? bootstrapFuture})
-    : _bootstrapFuture = bootstrapFuture ?? _bootstrapApplication();
-
-  final Future<_AppBootstrapState> _bootstrapFuture;
-=======
-  _MyApp({Future<AppBootstrapState>? bootstrapFuture})
-    : _bootstrapFuture = bootstrapFuture ?? _bootstrapApplication();
-
-  final Future<AppBootstrapState> _bootstrapFuture;
->>>>>>> main
-
-  @override
-  Widget build(BuildContext context) {
-    final base = ThemeData.light(useMaterial3: true);
-    final darkBase = ThemeData.dark(useMaterial3: true);
-
-<<<<<<< HEAD
-=======
-    const balticBlue = Color(0xFF33658A);
-    const blazeOrange = Color(0xFFF26419);
-    const honeyBronze = Color(0xFFF6AE2D);
-    const skyReflection = Color(0xFF86BBD8);
-    const bgLight = Color(0xFFF7F9FC);
-    const surfaceLight = Color(0xFFFFFFFF);
-    const textPrimaryLight = Color(0xFF1F2933);
-    const bgDark = Color(0xFF111827);
-    const surfaceDark = Color(0xFF1F2937);
-    const textPrimaryDark = Color(0xFFF9FAFB);
-
->>>>>>> main
-    return MaterialApp(
-      title: 'Cipher Courier',
-      debugShowCheckedModeBanner: false,
-      theme: base.copyWith(
-        colorScheme: const ColorScheme.light(
-<<<<<<< HEAD
-          primary: _balticBlue,
-          secondary: _blazeOrange,
-          tertiary: _honeyBronze,
-          surface: _surfaceLight,
-          onSurface: _textPrimaryLight,
-          onPrimary: Colors.white,
-        ),
-        scaffoldBackgroundColor: _bgLight,
-=======
-          primary: balticBlue,
-          secondary: blazeOrange,
-          tertiary: honeyBronze,
-          surface: surfaceLight,
-          onSurface: textPrimaryLight,
-          onPrimary: Colors.white,
-        ),
-        scaffoldBackgroundColor: bgLight,
->>>>>>> main
-        textTheme: GoogleFonts.spaceGroteskTextTheme(base.textTheme),
-      ),
-      darkTheme: darkBase.copyWith(
-        colorScheme: const ColorScheme.dark(
-<<<<<<< HEAD
-          primary: _honeyBronze,
-          secondary: _blazeOrange,
-          tertiary: _skyReflection,
-          surface: _surfaceDark,
-          onSurface: _textPrimaryDark,
-          onPrimary: _bgDark,
-        ),
-        scaffoldBackgroundColor: _bgDark,
-        textTheme: GoogleFonts.spaceGroteskTextTheme(darkBase.textTheme),
-      ),
-      themeMode: ThemeMode.system,
-      home: FutureBuilder<_AppBootstrapState>(
-        future: _bootstrapFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done) {
-            return const _BootstrapLoadingPage();
-          }
-
-          return _SignalChatPage(
-            bootstrapState:
-                snapshot.data ?? const _AppBootstrapState.firebaseUnavailable(),
-=======
-          primary: honeyBronze,
-          secondary: blazeOrange,
-          tertiary: skyReflection,
-          surface: surfaceDark,
-          onSurface: textPrimaryDark,
-          onPrimary: bgDark,
-        ),
-        scaffoldBackgroundColor: bgDark,
-        textTheme: GoogleFonts.spaceGroteskTextTheme(darkBase.textTheme),
-      ),
-      themeMode: ThemeMode.system,
-      home: FutureBuilder<AppBootstrapState>(
-        future: _bootstrapFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState != ConnectionState.done) {
-            return const BootstrapLoadingPage();
-          }
-
-          return AuthWrapper(
-            bootstrapState: snapshot.data ?? const AppBootstrapState.firebaseUnavailable(),
->>>>>>> main
-          );
-        },
-      ),
-    );
-  }
-}
-
-<<<<<<< HEAD
-Future<_AppBootstrapState> _bootstrapApplication() async {
-=======
-Future<AppBootstrapState> _bootstrapApplication() async {
->>>>>>> main
-  String? warning;
-  var firebaseReady = false;
-  var messagingReady = false;
-
-  try {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
-<<<<<<< HEAD
-    _configureFirebaseEmulatorIfRequested();
-=======
->>>>>>> main
-    firebaseReady = true;
-  } catch (error) {
-    warning = 'Firebase setup issue: $error';
-  }
-
-  if (firebaseReady && _supportsMessagingOnCurrentPlatform) {
-    try {
-      FirebaseMessaging.onBackgroundMessage(signalFcmBackgroundHandler);
-      messagingReady = true;
-    } catch (error) {
-      warning = _appendWarning(
-        warning,
-<<<<<<< HEAD
-        'Wake-only push handling is unavailable on this platform: $error',
-      );
-    }
-  } else if (firebaseReady) {
-    warning = _appendWarning(
-      warning,
-      'Wake-only FCM is only enabled on Android and iOS builds.',
-    );
-  }
-
-  return _AppBootstrapState(
-=======
-        'Wake-only push handling is unavailable: $error',
-      );
-    }
-  }
-
-  return AppBootstrapState(
->>>>>>> main
-    firebaseReady: firebaseReady,
-    messagingReady: messagingReady,
-    warning: warning,
-  );
-}
-
-<<<<<<< HEAD
-void _configureFirebaseEmulatorIfRequested() {
-  const useEmulator = bool.fromEnvironment('USE_FIREBASE_EMULATOR');
-  if (!useEmulator) {
-    return;
-  }
-
-  FirebaseFirestore.instance.useFirestoreEmulator('127.0.0.1', 8080);
-  FirebaseAuth.instance.useAuthEmulator('127.0.0.1', 9099);
-}
-
-bool get _supportsMessagingOnCurrentPlatform {
-  if (kIsWeb) {
-    return false;
-  }
-
-  return switch (defaultTargetPlatform) {
-    TargetPlatform.android || TargetPlatform.iOS => true,
-    _ => false,
-  };
-}
-
-String _appendWarning(String? current, String next) {
-  if (current == null || current.isEmpty) {
-    return next;
-  }
-  return '$current\n$next';
-}
-
-String? _extractImageMessageUrl(String plaintext) {
-  final trimmed = plaintext.trim();
-  if (!trimmed.startsWith(_imageMessagePrefix)) {
-    return null;
-  }
-
-  final candidate = trimmed.substring(_imageMessagePrefix.length).trim();
-  if (candidate.isEmpty) {
-    return null;
-  }
-
-  final uri = Uri.tryParse(candidate);
-  if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
-    return null;
-  }
-
-  return candidate;
-}
-
-class _AppBootstrapState {
-  const _AppBootstrapState({
-    required this.firebaseReady,
-    required this.messagingReady,
-    this.warning,
+class ChatPage extends StatefulWidget {
+  const ChatPage({
+    super.key,
+    required this.bootstrapState,
+    required this.user,
   });
 
-  const _AppBootstrapState.firebaseUnavailable()
-    : firebaseReady = false,
-      messagingReady = false,
-      warning = 'Firebase is not available on this build.';
-
-  final bool firebaseReady;
-  final bool messagingReady;
-  final String? warning;
-}
-
-class _DemoProfile {
-  const _DemoProfile({
-    required this.alias,
-    required this.label,
-    required this.peerAlias,
-    required this.email,
-    required this.password,
-    required this.accent,
-  });
-
-  final String alias;
-  final String label;
-  final String peerAlias;
-  final String email;
-  final String password;
-  final Color accent;
-}
-
-const _aliceProfile = _DemoProfile(
-  alias: 'alice',
-  label: 'Alice',
-  peerAlias: 'bob',
-  email: 'alice.demo@ciphercourier.app',
-  password: 'CipherCourierDemo123!',
-  accent: _balticBlue,
-);
-
-const _bobProfile = _DemoProfile(
-  alias: 'bob',
-  label: 'Bob',
-  peerAlias: 'alice',
-  email: 'bob.demo@ciphercourier.app',
-  password: 'CipherCourierDemo123!',
-  accent: _blazeOrange,
-);
-
-const _profiles = <_DemoProfile>[_aliceProfile, _bobProfile];
-
-class _SignalChatPage extends StatefulWidget {
-  const _SignalChatPage({required this.bootstrapState});
-
-  final _AppBootstrapState bootstrapState;
+  final AppBootstrapState bootstrapState;
+  final User user;
 
   @override
-  State<_SignalChatPage> createState() => _SignalChatPageState();
+  State<ChatPage> createState() => _ChatPageState();
 }
 
-class _SignalChatPageState extends State<_SignalChatPage> {
+class _ChatPageState extends State<ChatPage> {
   final TextEditingController _composerController = TextEditingController();
   final TextEditingController _forumComposerController =
       TextEditingController();
   final TextEditingController _groupNameController = TextEditingController();
-  final DemoAuthService _authService = DemoAuthService();
+  final AuthService _authService = AuthService();
   final LocalOptionsService _localOptionsService = LocalOptionsService();
   final ForumsService _forumsService = ForumsService();
   final AppGroupsService _appGroupsService = AppGroupsService();
   final ImagePicker _imagePicker = ImagePicker();
 
-  _DemoProfile _activeProfile = _aliceProfile;
   SignalMessageRepository? _repository;
   SignalFcmCoordinator? _fcmCoordinator;
   String? _activeUserId;
@@ -364,18 +71,15 @@ class _SignalChatPageState extends State<_SignalChatPage> {
   bool _busy = false;
   String _status = 'Preparing secure messaging workspace...';
 
-  _DemoProfile get _activePeerProfile => _profiles.firstWhere(
-    (profile) => profile.alias == _activeProfile.peerAlias,
-  );
-
   @override
   void initState() {
     super.initState();
     _status =
         widget.bootstrapState.warning ??
-        'Provision the demo profiles, then send messages with on-device decryption.';
+        'Welcome, ${widget.user.displayName ?? widget.user.email ?? 'User'}.';
+    _activeUserId = widget.user.uid;
     _loadLocalOptions();
-    _activateProfile(_activeProfile, syncAfterSwitch: false);
+    _initializeSignal();
   }
 
   @override
@@ -396,23 +100,6 @@ class _SignalChatPageState extends State<_SignalChatPage> {
       _localOptions = loaded;
     });
   }
-=======
-bool get _supportsMessagingOnCurrentPlatform {
-  if (kIsWeb) return false;
-  return switch (defaultTargetPlatform) {
-    TargetPlatform.android || TargetPlatform.iOS => true,
-    _ => false,
-  };
-}
-
-String _appendWarning(String? current, String next) {
-  if (current == null || current.isEmpty) return next;
-  return '$current\n$next';
-}
-
-class BootstrapLoadingPage extends StatelessWidget {
-  const BootstrapLoadingPage({super.key});
->>>>>>> main
 
   Future<void> _updateLocalOptions(LocalOptions options) async {
     setState(() {
@@ -421,90 +108,39 @@ class BootstrapLoadingPage extends StatelessWidget {
     await _localOptionsService.save(options);
   }
 
-  Future<void> _activateProfile(
-    _DemoProfile profile, {
-    bool syncAfterSwitch = true,
-  }) async {
+  Future<void> _initializeSignal() async {
+    if (!widget.bootstrapState.firebaseReady) return;
+
     setState(() {
-      _activeProfile = profile;
-      _repository = null;
-      _activeUserId = null;
-      _peerUserId = null;
-      _messages = const <LocalChatMessage>[];
-      _trustRecords = const <LocalTrustRecord>[];
-      _status =
-          widget.bootstrapState.warning ??
-          'Signing ${profile.label} in with Firebase Auth...';
+      _busy = true;
+      _status = 'Initializing secure messaging for your account...';
     });
 
-    SignalMessageRepository? repository;
-    if (widget.bootstrapState.firebaseReady) {
-      try {
-        final session = await _authService.signInAndResolvePeer(
-          DemoAuthProfile(
-            alias: profile.alias,
-            label: profile.label,
-            peerAlias: profile.peerAlias,
-            email: profile.email,
-            password: profile.password,
-          ),
-        );
+    try {
+      final repository = SignalMessageRepository.forLocalDevice(
+        firestore: FirebaseFirestore.instance,
+        localUserId: widget.user.uid,
+        localDeviceId: SignalService.defaultDeviceId,
+      );
 
-        repository = SignalMessageRepository.forLocalDevice(
-          firestore: FirebaseFirestore.instance,
-          localUserId: session.userId,
-          localDeviceId: SignalService.defaultDeviceId,
-        );
+      await repository.registerCurrentDevice();
 
-        if (!mounted) {
-          return;
-        }
-        setState(() {
-          _repository = repository;
-          _activeUserId = session.userId;
-          _peerUserId = session.peerUserId;
-          _status =
-              widget.bootstrapState.warning ??
-              (session.peerUserId == null
-                  ? 'Active profile: ${profile.label}. Provision both demo accounts before sending messages.'
-                  : 'Active profile: ${profile.label}. Register or sync to load local chat state.');
-        });
-      } catch (error) {
-        if (!mounted) {
-          return;
-        }
-        setState(() {
-          _status = 'Failed to sign ${profile.label} in: $error';
-        });
-        return;
-      }
-    }
+      setState(() {
+        _repository = repository;
+        _activeUserId = widget.user.uid;
+        _status = 'Secure messaging ready.';
+      });
 
-    await _bindForegroundWakeHandler();
-    await _reloadLocalState();
-
-    if (syncAfterSwitch && repository != null) {
-      try {
-        final imported = await repository.syncPendingMessages(
-          peerUserId: _peerUserId,
-        );
-        await _reloadLocalState();
-        if (!mounted) {
-          return;
-        }
-        setState(() {
-          _status = imported == 0
-              ? '${profile.label} is up to date.'
-              : 'Synced $imported encrypted delivery record(s) for ${profile.label}.';
-        });
-      } catch (error) {
-        if (!mounted) {
-          return;
-        }
-        setState(() {
-          _status = 'Sync skipped for ${profile.label}: $error';
-        });
-      }
+      await _bindForegroundWakeHandler();
+      await _reloadLocalState();
+    } catch (e) {
+      setState(() {
+        _status = 'Signal initialization failed: $e';
+      });
+    } finally {
+      setState(() {
+        _busy = false;
+      });
     }
   }
 
@@ -529,8 +165,7 @@ class BootstrapLoadingPage extends StatelessWidget {
           return;
         }
         setState(() {
-          _status =
-              'Wake signal fetched a new encrypted message for ${_activeProfile.label}.';
+          _status = 'New encrypted message received.';
         });
       },
     );
@@ -560,112 +195,26 @@ class BootstrapLoadingPage extends StatelessWidget {
     });
   }
 
-  Future<void> _registerActiveProfile() async {
-    final repository = _repository;
-    final activeUserId = _activeUserId;
-    if (repository == null || activeUserId == null) {
-      return;
-    }
-
-    setState(() {
-      _busy = true;
-      _status = 'Registering ${_activeProfile.label} with local Signal keys...';
-    });
-
-    try {
-      await repository.registerCurrentDevice();
-      await _reloadLocalState();
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _status =
-            '${_activeProfile.label} is registered as $activeUserId with a local-only private key.';
-      });
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _status = 'Registration failed: $error';
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _busy = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _provisionBothProfiles() async {
-    if (!widget.bootstrapState.firebaseReady) {
-      return;
-    }
-
-    setState(() {
-      _busy = true;
-      _status = 'Provisioning Alice and Bob with separate device bundles...';
-    });
-
-    try {
-      final originalProfile = _activeProfile;
-      for (final profile in _profiles) {
-        final session = await _authService.signInAndResolvePeer(
-          DemoAuthProfile(
-            alias: profile.alias,
-            label: profile.label,
-            peerAlias: profile.peerAlias,
-            email: profile.email,
-            password: profile.password,
-          ),
-        );
-        final repository = SignalMessageRepository.forLocalDevice(
-          firestore: FirebaseFirestore.instance,
-          localUserId: session.userId,
-          localDeviceId: SignalService.defaultDeviceId,
-        );
-        await repository.registerCurrentDevice();
-      }
-
-      await _activateProfile(originalProfile, syncAfterSwitch: true);
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _status =
-            'Both demo profiles are ready. Send from one profile, switch, then sync the other.';
-      });
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _status = 'Provisioning failed: $error';
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _busy = false;
-        });
-      }
-    }
-  }
-
   Future<void> _syncInbox() async {
     final repository = _repository;
-    if (repository == null) {
+    final peerUserId = _peerUserId;
+    if (repository == null || peerUserId == null) {
+      if (mounted) {
+        setState(() {
+          _status = 'Link a peer account before syncing inbox.';
+        });
+      }
       return;
     }
 
     setState(() {
       _busy = true;
-      _status = 'Fetching queued ciphertext for ${_activeProfile.label}...';
+      _status = 'Fetching queued ciphertext...';
     });
 
     try {
       final imported = await repository.syncPendingMessages(
-        peerUserId: _peerUserId,
+        peerUserId: peerUserId,
       );
       await _reloadLocalState();
       if (!mounted) {
@@ -673,8 +222,8 @@ class BootstrapLoadingPage extends StatelessWidget {
       }
       setState(() {
         _status = imported == 0
-            ? 'No new ciphertext deliveries for ${_activeProfile.label}.'
-            : 'Imported $imported new message(s) for ${_activeProfile.label}.';
+            ? 'No new messages.'
+            : 'Imported $imported new message(s).';
       });
     } catch (error) {
       if (!mounted) {
@@ -702,8 +251,7 @@ class BootstrapLoadingPage extends StatelessWidget {
 
     setState(() {
       _busy = true;
-      _status =
-          'Encrypting and fanning out this message to ${_activeProfile.peerAlias} device(s)...';
+      _status = 'Encrypting and sending message...';
     });
 
     try {
@@ -717,8 +265,7 @@ class BootstrapLoadingPage extends StatelessWidget {
         return;
       }
       setState(() {
-        _status =
-            'Message encrypted locally, uploaded as per-device ciphertext, and cached in the local encrypted DB.';
+        _status = 'Message sent securely.';
       });
     } catch (error) {
       if (!mounted) {
@@ -758,7 +305,7 @@ class BootstrapLoadingPage extends StatelessWidget {
 
     setState(() {
       _busy = true;
-      _status = 'Uploading image and wrapping it in encrypted delivery...';
+      _status = 'Uploading and encrypting image...';
     });
 
     try {
@@ -787,7 +334,7 @@ class BootstrapLoadingPage extends StatelessWidget {
         return;
       }
       setState(() {
-        _status = 'Shared image link as encrypted message payload.';
+        _status = 'Image sent securely.';
       });
     } catch (error) {
       if (!mounted) {
@@ -795,37 +342,6 @@ class BootstrapLoadingPage extends StatelessWidget {
       }
       setState(() {
         _status = 'Image send failed: $error';
-      });
-    } finally {
-      if (mounted) {
-        setState(() {
-          _busy = false;
-        });
-      }
-    }
-  }
-
-  Future<void> _signInWithGoogle() async {
-    setState(() {
-      _busy = true;
-      _status = 'Starting Google sign-in...';
-    });
-
-    try {
-      final credential = await _authService.signInWithGoogle();
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _status =
-            'Google auth successful for ${credential.user?.email ?? credential.user?.uid ?? 'unknown user'}.';
-      });
-    } catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _status = 'Google sign-in failed: $error';
       });
     } finally {
       if (mounted) {
@@ -854,16 +370,18 @@ class BootstrapLoadingPage extends StatelessWidget {
     }
     if (parsed == null) {
       setState(() {
-        _status = 'Scanned QR was not a valid account payload.';
+        _status = 'Invalid QR code.';
       });
       return;
     }
 
     setState(() {
       _linkedAccount = parsed;
-      _status =
-          'Linked account hint: ${parsed.label} (${parsed.userId}/${parsed.deviceId}).';
+      _peerUserId = parsed.userId;
+      _status = 'Linked with ${parsed.label}.';
     });
+    
+    await _reloadLocalState();
   }
 
   Future<void> _createForumPost() async {
@@ -883,7 +401,7 @@ class BootstrapLoadingPage extends StatelessWidget {
     try {
       await _forumsService.createPost(
         authorUserId: userId,
-        authorLabel: _activeProfile.label,
+        authorLabel: widget.user.displayName ?? widget.user.email ?? 'User',
         body: body,
       );
       _forumComposerController.clear();
@@ -898,7 +416,7 @@ class BootstrapLoadingPage extends StatelessWidget {
         return;
       }
       setState(() {
-        _status = 'Failed to publish forum post: $error';
+        _status = 'Failed to publish: $error';
       });
     } finally {
       if (mounted) {
@@ -950,11 +468,15 @@ class BootstrapLoadingPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-<<<<<<< HEAD
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final activePeer = _activePeerProfile;
     final canOpenChat =
         widget.bootstrapState.firebaseReady && _peerUserId != null;
+    final userLabel = (widget.user.displayName?.trim().isNotEmpty ?? false)
+        ? widget.user.displayName!.trim()
+        : (widget.user.email?.trim().isNotEmpty ?? false)
+        ? widget.user.email!.trim()
+        : 'User';
+    final userInitial = userLabel.substring(0, 1).toUpperCase();
 
     return Scaffold(
       appBar: AppBar(
@@ -965,11 +487,11 @@ class BootstrapLoadingPage extends StatelessWidget {
           children: <Widget>[
             CircleAvatar(
               radius: 16,
-              backgroundColor: _activeProfile.accent.withValues(alpha: 0.18),
+              backgroundColor: _balticBlue.withValues(alpha: 0.18),
               child: Text(
-                _activeProfile.label.substring(0, 1),
-                style: TextStyle(
-                  color: _activeProfile.accent,
+                userInitial,
+                style: const TextStyle(
+                  color: _balticBlue,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -980,7 +502,7 @@ class BootstrapLoadingPage extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
                 Text(
-                  _activeProfile.label,
+                  userLabel,
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
@@ -996,78 +518,45 @@ class BootstrapLoadingPage extends StatelessWidget {
               ],
             ),
           ],
-=======
-    return const Scaffold(
-      body: Center(
-        child: SizedBox(
-          width: 28,
-          height: 28,
-          child: CircularProgressIndicator(),
->>>>>>> main
         ),
         actions: <Widget>[
           IconButton(
             tooltip: 'Sync inbox',
-            onPressed: widget.bootstrapState.firebaseReady && !_busy
+            onPressed: widget.bootstrapState.firebaseReady &&
+                    !_busy &&
+                    _peerUserId != null
                 ? _syncInbox
                 : null,
             icon: const Icon(Icons.sync_rounded),
           ),
           IconButton(
-            tooltip: 'Open chat',
-            onPressed: canOpenChat
-                ? () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (context) => _ChatDetailPage(
-                          dark: dark,
-                          activeProfile: _activeProfile,
-                          peerProfile: activePeer,
-                          trustRecords: _trustRecords,
-                          activeUserId: _activeUserId,
-                          peerUserId: _peerUserId,
-                          messages: _messages,
-                          composerController: _composerController,
-                          busy: _busy,
-                          firebaseReady: widget.bootstrapState.firebaseReady,
-                          status: _status,
-                          warning: widget.bootstrapState.warning,
-                          onSend: _sendMessage,
-                          onSendImage: _sendImageMessage,
-                          onSync: _syncInbox,
-                        ),
-                      ),
-                    );
-                  }
-                : null,
-            icon: const Icon(Icons.chat_bubble_rounded),
+            tooltip: 'Sign Out',
+            onPressed: () => _authService.signOut(),
+            icon: const Icon(Icons.logout_rounded),
           ),
         ],
       ),
-<<<<<<< HEAD
       body: IndexedStack(
         index: _selectedTabIndex,
         children: <Widget>[
           _ConversationsTab(
             dark: dark,
-            activeProfile: _activeProfile,
-            peerProfile: activePeer,
+            user: widget.user,
             status: _status,
             warning: widget.bootstrapState.warning,
             busy: _busy,
             messageCount: _messages.length,
             lastMessage: _messages.isEmpty ? null : _messages.last,
+            peerUserId: _peerUserId,
             onOpenConversation: canOpenChat
                 ? () {
                     Navigator.of(context).push(
                       MaterialPageRoute<void>(
                         builder: (context) => _ChatDetailPage(
                           dark: dark,
-                          activeProfile: _activeProfile,
-                          peerProfile: activePeer,
+                          user: widget.user,
+                          peerUserId: _peerUserId!,
                           trustRecords: _trustRecords,
-                          activeUserId: _activeUserId,
-                          peerUserId: _peerUserId,
                           messages: _messages,
                           composerController: _composerController,
                           busy: _busy,
@@ -1082,50 +571,37 @@ class BootstrapLoadingPage extends StatelessWidget {
                     );
                   }
                 : null,
-            onRegister: widget.bootstrapState.firebaseReady && !_busy
-                ? _registerActiveProfile
-                : null,
-            onProvisionBoth: widget.bootstrapState.firebaseReady && !_busy
-                ? _provisionBothProfiles
+            onSync: widget.bootstrapState.firebaseReady && !_busy
+                ? _syncInbox
                 : null,
           ),
           _ContactsTab(
             dark: dark,
-            activeProfile: _activeProfile,
-            peerProfile: activePeer,
+            user: widget.user,
             forumsService: _forumsService,
-            activeUserId: _activeUserId,
             composerController: _forumComposerController,
             busy: _busy,
             onCreatePost: _createForumPost,
           ),
           _GroupsTab(
             dark: dark,
-            activeProfile: _activeProfile,
+            user: widget.user,
             appGroupsService: _appGroupsService,
-            activeUserId: _activeUserId,
             groupNameController: _groupNameController,
             busy: _busy,
             onCreateGroup: _createGroup,
           ),
           _SettingsTab(
             dark: dark,
-            activeProfile: _activeProfile,
+            user: widget.user,
             status: _status,
             warning: widget.bootstrapState.warning,
             busy: _busy,
             localOptions: _localOptions,
             linkedAccount: _linkedAccount,
-            onRegister: widget.bootstrapState.firebaseReady && !_busy
-                ? _registerActiveProfile
-                : null,
             onSync: widget.bootstrapState.firebaseReady && !_busy
                 ? _syncInbox
                 : null,
-            onProvisionBoth: widget.bootstrapState.firebaseReady && !_busy
-                ? _provisionBothProfiles
-                : null,
-            onGoogleSignIn: !_busy ? _signInWithGoogle : null,
             onScanQr: !_busy ? _scanAccountQr : null,
             onToggleAutoSync: (enabled) {
               _updateLocalOptions(
@@ -1140,15 +616,6 @@ class BootstrapLoadingPage extends StatelessWidget {
             onSetPreferredCamera: (camera) {
               _updateLocalOptions(
                 _localOptions.copyWith(preferredCamera: camera),
-              );
-            },
-            onSelectProfile: (profile) {
-              if (_busy || profile == _activeProfile) {
-                return;
-              }
-              _activateProfile(
-                profile,
-                syncAfterSwitch: _localOptions.autoSyncEnabled,
               );
             },
           ),
@@ -1274,19 +741,24 @@ class _ActionButton extends StatelessWidget {
 class _ConversationMetaCard extends StatelessWidget {
   const _ConversationMetaCard({
     required this.dark,
-    required this.activeProfile,
-    required this.peerProfile,
-    required this.trustRecords,
-    required this.activeUserId,
+    required this.activeUser,
     required this.peerUserId,
+    required this.trustRecords,
   });
 
   final bool dark;
-  final _DemoProfile activeProfile;
-  final _DemoProfile peerProfile;
+  final User activeUser;
+  final String peerUserId;
   final List<LocalTrustRecord> trustRecords;
-  final String? activeUserId;
-  final String? peerUserId;
+
+  String _fingerprintPreview(String hash) {
+    final trimmed = hash.trim();
+    if (trimmed.isEmpty) {
+      return 'unknown';
+    }
+    final end = trimmed.length < 10 ? trimmed.length : 10;
+    return trimmed.substring(0, end);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1302,7 +774,7 @@ class _ConversationMetaCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            '${activeProfile.label} chatting with ${peerProfile.label}',
+            'Secure chat with $peerUserId',
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w700,
               color: dark ? _textPrimaryDark : _textPrimaryLight,
@@ -1310,9 +782,7 @@ class _ConversationMetaCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            activeUserId == null || peerUserId == null
-                ? 'Conversation ID will appear after both demo users sign in.'
-                : 'Conversation ID: ${SignalMessageRepository.directConversationId(activeUserId!, peerUserId!)}',
+            'Conversation ID: ${SignalMessageRepository.directConversationId(activeUser.uid, peerUserId)}',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: dark ? _textSecondaryDark : _textSecondaryLight,
             ),
@@ -1320,8 +790,8 @@ class _ConversationMetaCard extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             trustRecords.isEmpty
-                ? 'No trust snapshots yet. They are stored after bundle fetch or receive.'
-                : 'Known peer device fingerprints: ${trustRecords.map((record) => '${record.deviceId}:${record.identityKeyHash.substring(0, 10)}').join('  ')}',
+                ? 'No trust snapshots yet.'
+                : 'Known peer device fingerprints: ${trustRecords.map((record) => '${record.deviceId}:${_fingerprintPreview(record.identityKeyHash)}').join('  ')}',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: dark ? _textSecondaryDark : _textSecondaryLight,
             ),
@@ -1358,7 +828,7 @@ class _MessagesPanel extends StatelessWidget {
       child: messages.isEmpty
           ? Center(
               child: Text(
-                'No local transcript yet. Register the profiles, send a message, then sync the recipient profile.',
+                'No messages yet. Link with a peer to start chatting.',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                   color: dark ? _textSecondaryDark : _textSecondaryLight,
@@ -1417,28 +887,7 @@ class _MessagesPanel extends StatelessWidget {
                                   width: 220,
                                   height: 170,
                                   fit: BoxFit.cover,
-                                  errorBuilder: (context, error, stackTrace) {
-                                    return Container(
-                                      width: 220,
-                                      height: 90,
-                                      alignment: Alignment.center,
-                                      color: outgoing
-                                          ? const Color(0xFF2A5677)
-                                          : const Color(0xFFE2E8F0),
-                                      child: Text(
-                                        'Image unavailable',
-                                        style: Theme.of(context)
-                                            .textTheme
-                                            .bodySmall
-                                            ?.copyWith(
-                                              color: outgoing
-                                                  ? Colors.white
-                                                  : _textPrimaryLight,
-                                            ),
-                                      ),
-                                    );
-                                  },
-                                ),
+                                )
                               )
                             else
                               Text(
@@ -1475,6 +924,25 @@ class _MessagesPanel extends StatelessWidget {
             ),
     );
   }
+}
+
+String? _extractImageMessageUrl(String plaintext) {
+  final trimmed = plaintext.trim();
+  if (!trimmed.startsWith(_imageMessagePrefix)) {
+    return null;
+  }
+
+  final candidate = trimmed.substring(_imageMessagePrefix.length).trim();
+  if (candidate.isEmpty) {
+    return null;
+  }
+
+  final uri = Uri.tryParse(candidate);
+  if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
+    return null;
+  }
+
+  return candidate;
 }
 
 class _ComposerBar extends StatelessWidget {
@@ -1535,34 +1003,32 @@ class _ComposerBar extends StatelessWidget {
 class _ConversationsTab extends StatelessWidget {
   const _ConversationsTab({
     required this.dark,
-    required this.activeProfile,
-    required this.peerProfile,
+    required this.user,
     required this.status,
     required this.warning,
     required this.busy,
     required this.messageCount,
     required this.lastMessage,
+    required this.peerUserId,
     required this.onOpenConversation,
-    required this.onRegister,
-    required this.onProvisionBoth,
+    required this.onSync,
   });
 
   final bool dark;
-  final _DemoProfile activeProfile;
-  final _DemoProfile peerProfile;
+  final User user;
   final String status;
   final String? warning;
   final bool busy;
   final int messageCount;
   final LocalChatMessage? lastMessage;
+  final String? peerUserId;
   final VoidCallback? onOpenConversation;
-  final VoidCallback? onRegister;
-  final VoidCallback? onProvisionBoth;
+  final VoidCallback? onSync;
 
   @override
   Widget build(BuildContext context) {
     final subtitle = lastMessage == null
-        ? 'No messages yet. Register and send your first secure message.'
+        ? 'No messages yet.'
         : lastMessage!.plaintext;
     final timestamp = lastMessage == null
         ? 'now'
@@ -1575,26 +1041,6 @@ class _ConversationsTab extends StatelessWidget {
         children: <Widget>[
           _StatusCard(status: status, busy: busy, dark: dark, warning: warning),
           const SizedBox(height: 12),
-          Row(
-            children: <Widget>[
-              Expanded(
-                child: _ActionButton(
-                  label: 'Register ${activeProfile.label}',
-                  icon: Icons.key_rounded,
-                  onPressed: onRegister,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: _ActionButton(
-                  label: 'Provision Both',
-                  icon: Icons.devices_rounded,
-                  onPressed: onProvisionBoth,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
           Text(
             'Conversations',
             style: Theme.of(
@@ -1602,75 +1048,64 @@ class _ConversationsTab extends StatelessWidget {
             ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 10),
-          Card(
-            margin: EdgeInsets.zero,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18),
-            ),
-            child: ListTile(
-              onTap: onOpenConversation,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 14,
-                vertical: 10,
+          if (peerUserId != null)
+            Card(
+              margin: EdgeInsets.zero,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
               ),
-              leading: CircleAvatar(
-                backgroundColor: peerProfile.accent.withValues(alpha: 0.18),
-                child: Text(
-                  peerProfile.label.substring(0, 1),
-                  style: TextStyle(
-                    color: peerProfile.accent,
-                    fontWeight: FontWeight.w700,
-                  ),
+              child: ListTile(
+                onTap: onOpenConversation,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
                 ),
-              ),
-              title: Text(
-                peerProfile.label,
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-              subtitle: Text(
-                subtitle,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              trailing: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: <Widget>[
-                  Text(
-                    timestamp,
-                    style: Theme.of(context).textTheme.labelSmall,
-                  ),
-                  const SizedBox(height: 6),
-                  if (messageCount > 0)
-                    CircleAvatar(
-                      radius: 11,
-                      backgroundColor: _blazeOrange,
-                      child: Text(
-                        '$messageCount',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 11,
+                leading: CircleAvatar(
+                  backgroundColor: _honeyBronze.withValues(alpha: 0.18),
+                  child: const Icon(Icons.person, color: _honeyBronze),
+                ),
+                title: Text(
+                  'Peer: $peerUserId',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                subtitle: Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                trailing: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: <Widget>[
+                    Text(
+                      timestamp,
+                      style: Theme.of(context).textTheme.labelSmall,
+                    ),
+                    const SizedBox(height: 6),
+                    if (messageCount > 0)
+                      CircleAvatar(
+                        radius: 11,
+                        backgroundColor: _blazeOrange,
+                        child: Text(
+                          '$messageCount',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                          ),
                         ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
+              ),
+            )
+          else
+            const Card(
+              child: ListTile(
+                leading: Icon(Icons.qr_code_scanner_rounded),
+                title: Text('No active conversations'),
+                subtitle: Text('Use the Settings tab to link with a peer.'),
               ),
             ),
-          ),
-          const SizedBox(height: 12),
-          Card(
-            margin: EdgeInsets.zero,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18),
-            ),
-            child: const ListTile(
-              leading: Icon(Icons.search_rounded),
-              title: Text('Search messages and groups'),
-              subtitle: Text(
-                'Search is planned in the next implementation pass.',
-              ),
-            ),
-          ),
         ],
       ),
     );
@@ -1680,11 +1115,9 @@ class _ConversationsTab extends StatelessWidget {
 class _ChatDetailPage extends StatelessWidget {
   const _ChatDetailPage({
     required this.dark,
-    required this.activeProfile,
-    required this.peerProfile,
-    required this.trustRecords,
-    required this.activeUserId,
+    required this.user,
     required this.peerUserId,
+    required this.trustRecords,
     required this.messages,
     required this.composerController,
     required this.busy,
@@ -1697,11 +1130,9 @@ class _ChatDetailPage extends StatelessWidget {
   });
 
   final bool dark;
-  final _DemoProfile activeProfile;
-  final _DemoProfile peerProfile;
+  final User user;
+  final String peerUserId;
   final List<LocalTrustRecord> trustRecords;
-  final String? activeUserId;
-  final String? peerUserId;
   final List<LocalChatMessage> messages;
   final TextEditingController composerController;
   final bool busy;
@@ -1716,23 +1147,7 @@ class _ChatDetailPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Row(
-          children: <Widget>[
-            CircleAvatar(
-              radius: 14,
-              backgroundColor: peerProfile.accent.withValues(alpha: 0.18),
-              child: Text(
-                peerProfile.label.substring(0, 1),
-                style: TextStyle(
-                  color: peerProfile.accent,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Text(peerProfile.label),
-          ],
-        ),
+        title: Text('Chat: $peerUserId'),
         actions: <Widget>[
           IconButton(
             onPressed: busy ? null : onSync,
@@ -1759,11 +1174,9 @@ class _ChatDetailPage extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
                 child: _ConversationMetaCard(
                   dark: dark,
-                  activeProfile: activeProfile,
-                  peerProfile: peerProfile,
-                  trustRecords: trustRecords,
-                  activeUserId: activeUserId,
+                  activeUser: user,
                   peerUserId: peerUserId,
+                  trustRecords: trustRecords,
                 ),
               ),
               Expanded(
@@ -1772,8 +1185,8 @@ class _ChatDetailPage extends StatelessWidget {
                   child: _MessagesPanel(
                     dark: dark,
                     messages: messages,
-                    activeUserId: activeUserId,
-                    peerLabel: peerProfile.label,
+                    activeUserId: user.uid,
+                    peerLabel: 'Peer',
                   ),
                 ),
               ),
@@ -1782,7 +1195,7 @@ class _ChatDetailPage extends StatelessWidget {
                 child: _ComposerBar(
                   controller: composerController,
                   dark: dark,
-                  enabled: firebaseReady && !busy && peerUserId != null,
+                  enabled: firebaseReady && !busy,
                   onSend: onSend,
                   onSendImage: onSendImage,
                 ),
@@ -1798,20 +1211,16 @@ class _ChatDetailPage extends StatelessWidget {
 class _ContactsTab extends StatelessWidget {
   const _ContactsTab({
     required this.dark,
-    required this.activeProfile,
-    required this.peerProfile,
+    required this.user,
     required this.forumsService,
-    required this.activeUserId,
     required this.composerController,
     required this.busy,
     required this.onCreatePost,
   });
 
   final bool dark;
-  final _DemoProfile activeProfile;
-  final _DemoProfile peerProfile;
+  final User user;
   final ForumsService forumsService;
-  final String? activeUserId;
   final TextEditingController composerController;
   final bool busy;
   final VoidCallback onCreatePost;
@@ -1823,58 +1232,6 @@ class _ContactsTab extends StatelessWidget {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
         children: <Widget>[
-          Text(
-            'Contacts',
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 10),
-          Card(
-            margin: EdgeInsets.zero,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18),
-            ),
-            child: ListTile(
-              leading: CircleAvatar(
-                backgroundColor: peerProfile.accent.withValues(alpha: 0.18),
-                child: Text(
-                  peerProfile.label.substring(0, 1),
-                  style: TextStyle(
-                    color: peerProfile.accent,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              title: Text(peerProfile.label),
-              subtitle: const Text(
-                'Demo contact ready for secure direct messaging.',
-              ),
-              trailing: const Icon(Icons.chevron_right_rounded),
-            ),
-          ),
-          const SizedBox(height: 12),
-          Card(
-            margin: EdgeInsets.zero,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(18),
-            ),
-            child: ListTile(
-              leading: CircleAvatar(
-                backgroundColor: activeProfile.accent.withValues(alpha: 0.18),
-                child: Text(
-                  activeProfile.label.substring(0, 1),
-                  style: TextStyle(
-                    color: activeProfile.accent,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              title: const Text('You'),
-              subtitle: Text('Signed in as ${activeProfile.label}'),
-            ),
-          ),
-          const SizedBox(height: 16),
           Text(
             'Forums',
             style: Theme.of(
@@ -1894,7 +1251,7 @@ class _ContactsTab extends StatelessWidget {
                   Expanded(
                     child: TextField(
                       controller: composerController,
-                      enabled: activeUserId != null && !busy,
+                      enabled: !busy,
                       decoration: const InputDecoration(
                         hintText: 'Post to forum',
                         border: InputBorder.none,
@@ -1902,9 +1259,7 @@ class _ContactsTab extends StatelessWidget {
                     ),
                   ),
                   IconButton(
-                    onPressed: activeUserId != null && !busy
-                        ? onCreatePost
-                        : null,
+                    onPressed: !busy ? onCreatePost : null,
                     icon: const Icon(Icons.send_rounded),
                   ),
                 ],
@@ -1937,7 +1292,7 @@ class _ContactsTab extends StatelessWidget {
 
               return Column(
                 children: posts
-                    .take(8)
+                    .take(15)
                     .map(
                       (post) => Card(
                         margin: const EdgeInsets.only(bottom: 8),
@@ -1965,18 +1320,16 @@ class _ContactsTab extends StatelessWidget {
 class _GroupsTab extends StatelessWidget {
   const _GroupsTab({
     required this.dark,
-    required this.activeProfile,
+    required this.user,
     required this.appGroupsService,
-    required this.activeUserId,
     required this.groupNameController,
     required this.busy,
     required this.onCreateGroup,
   });
 
   final bool dark;
-  final _DemoProfile activeProfile;
+  final User user;
   final AppGroupsService appGroupsService;
-  final String? activeUserId;
   final TextEditingController groupNameController;
   final bool busy;
   final VoidCallback onCreateGroup;
@@ -2007,7 +1360,7 @@ class _GroupsTab extends StatelessWidget {
                   Expanded(
                     child: TextField(
                       controller: groupNameController,
-                      enabled: activeUserId != null && !busy,
+                      enabled: !busy,
                       decoration: const InputDecoration(
                         hintText: 'New group name',
                         border: InputBorder.none,
@@ -2015,9 +1368,7 @@ class _GroupsTab extends StatelessWidget {
                     ),
                   ),
                   IconButton(
-                    onPressed: activeUserId != null && !busy
-                        ? onCreateGroup
-                        : null,
+                    onPressed: !busy ? onCreateGroup : null,
                     icon: const Icon(Icons.add_circle_outline_rounded),
                   ),
                 ],
@@ -2039,24 +1390,17 @@ class _GroupsTab extends StatelessWidget {
 
               final groups = snapshot.data ?? const <AppGroup>[];
               if (groups.isEmpty) {
-                return Card(
-                  margin: EdgeInsets.zero,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(18),
-                  ),
+                return const Card(
                   child: ListTile(
-                    leading: const Icon(Icons.groups_rounded),
-                    title: const Text('No groups yet'),
-                    subtitle: Text(
-                      'Create the first group for ${activeProfile.label}.',
-                    ),
+                    leading: Icon(Icons.groups_rounded),
+                    title: Text('No groups yet'),
                   ),
                 );
               }
 
               return Column(
                 children: groups
-                    .take(10)
+                    .take(15)
                     .map(
                       (group) => Card(
                         margin: const EdgeInsets.only(bottom: 8),
@@ -2080,39 +1424,31 @@ class _GroupsTab extends StatelessWidget {
 class _SettingsTab extends StatelessWidget {
   const _SettingsTab({
     required this.dark,
-    required this.activeProfile,
+    required this.user,
     required this.status,
     required this.warning,
     required this.busy,
     required this.localOptions,
     required this.linkedAccount,
-    required this.onRegister,
     required this.onSync,
-    required this.onProvisionBoth,
-    required this.onGoogleSignIn,
     required this.onScanQr,
     required this.onToggleAutoSync,
     required this.onToggleMultiDeviceHints,
     required this.onSetPreferredCamera,
-    required this.onSelectProfile,
   });
 
   final bool dark;
-  final _DemoProfile activeProfile;
+  final User user;
   final String status;
   final String? warning;
   final bool busy;
   final LocalOptions localOptions;
   final AccountQrPayload? linkedAccount;
-  final VoidCallback? onRegister;
   final VoidCallback? onSync;
-  final VoidCallback? onProvisionBoth;
-  final VoidCallback? onGoogleSignIn;
   final VoidCallback? onScanQr;
   final ValueChanged<bool> onToggleAutoSync;
   final ValueChanged<bool> onToggleMultiDeviceHints;
   final ValueChanged<String> onSetPreferredCamera;
-  final ValueChanged<_DemoProfile> onSelectProfile;
 
   @override
   Widget build(BuildContext context) {
@@ -2140,25 +1476,12 @@ class _SettingsTab extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
-                  const Text(
-                    'Active profile',
-                    style: TextStyle(fontWeight: FontWeight.w700),
+                  Text(
+                    'Logged in as: ${user.email}',
+                    style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
-                  const SizedBox(height: 10),
-                  SegmentedButton<_DemoProfile>(
-                    showSelectedIcon: false,
-                    segments: _profiles
-                        .map(
-                          (profile) => ButtonSegment<_DemoProfile>(
-                            value: profile,
-                            label: Text(profile.label),
-                          ),
-                        )
-                        .toList(growable: false),
-                    selected: <_DemoProfile>{activeProfile},
-                    onSelectionChanged: (selection) =>
-                        onSelectProfile(selection.first),
-                  ),
+                  const SizedBox(height: 4),
+                  Text('UID: ${user.uid}', style: Theme.of(context).textTheme.bodySmall),
                 ],
               ),
             ),
@@ -2169,27 +1492,12 @@ class _SettingsTab extends StatelessWidget {
             runSpacing: 8,
             children: <Widget>[
               _ActionButton(
-                label: 'Register',
-                icon: Icons.key_rounded,
-                onPressed: onRegister,
-              ),
-              _ActionButton(
                 label: 'Sync',
                 icon: Icons.sync_rounded,
                 onPressed: onSync,
               ),
               _ActionButton(
-                label: 'Provision Both',
-                icon: Icons.devices_rounded,
-                onPressed: onProvisionBoth,
-              ),
-              _ActionButton(
-                label: 'Google Sign-In',
-                icon: Icons.login_rounded,
-                onPressed: onGoogleSignIn,
-              ),
-              _ActionButton(
-                label: 'Scan Account QR',
+                label: 'Scan Peer QR',
                 icon: Icons.qr_code_scanner_rounded,
                 onPressed: onScanQr,
               ),
@@ -2204,15 +1512,12 @@ class _SettingsTab extends StatelessWidget {
             child: Column(
               children: <Widget>[
                 SwitchListTile.adaptive(
-                  title: const Text('Auto-sync on profile switch'),
+                  title: const Text('Auto-sync messages'),
                   value: localOptions.autoSyncEnabled,
                   onChanged: busy ? null : onToggleAutoSync,
                 ),
                 SwitchListTile.adaptive(
                   title: const Text('Show multi-device hints'),
-                  subtitle: const Text(
-                    'Surfaces account/device metadata in status updates.',
-                  ),
                   value: localOptions.multiDeviceHints,
                   onChanged: busy ? null : onToggleMultiDeviceHints,
                 ),
@@ -2308,25 +1613,6 @@ class _AccountQrScannerPageState extends State<_AccountQrScannerPage> {
           Navigator.of(context).pop(value);
         },
       ),
-    );
-  }
-}
-
-class _BootstrapLoadingPage extends StatelessWidget {
-  const _BootstrapLoadingPage();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Scaffold(
-      body: Center(
-        child: SizedBox(
-          width: 28,
-          height: 28,
-          child: CircularProgressIndicator(),
-        ),
-      ),
-=======
->>>>>>> main
     );
   }
 }
