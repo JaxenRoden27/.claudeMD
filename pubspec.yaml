@@ -49,6 +49,7 @@ dependencies:
   path: ^1.9.1
   cryptography: ^2.7.0
   shared_preferences: ^2.3.3
+  qr_flutter: ^4.1.0
 
 
 dev_dependencies:

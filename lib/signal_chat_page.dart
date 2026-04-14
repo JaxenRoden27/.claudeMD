@@ -1,9 +1,12 @@
+import 'dart:convert';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import 'app_feature_services.dart';
 import 'auth_service.dart';
@@ -482,6 +485,42 @@ class _SignalChatPageState extends State<SignalChatPage> {
     }
   }
 
+  void _showMyQrCode() {
+    final payload = AccountQrPayload(
+      userId: widget.user.uid,
+      deviceId: SignalService.defaultDeviceId,
+      label: widget.user.displayName ?? widget.user.email ?? 'User',
+    );
+    final rawJson = jsonEncode(payload.toJson());
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('My QR Code'),
+          content: SizedBox(
+            width: 250,
+            height: 250,
+            child: Center(
+              child: QrImageView(
+                data: rawJson,
+                version: QrVersions.auto,
+                size: 200.0,
+                backgroundColor: Colors.white,
+              ),
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
@@ -501,14 +540,18 @@ class _SignalChatPageState extends State<SignalChatPage> {
         titleSpacing: 16,
         title: Row(
           children: <Widget>[
-            CircleAvatar(
-              radius: 16,
-              backgroundColor: _balticBlue.withValues(alpha: 0.18),
-              child: Text(
-                userInitial,
-                style: const TextStyle(
-                  color: _balticBlue,
-                  fontWeight: FontWeight.w700,
+            InkWell(
+              onTap: _showMyQrCode,
+              borderRadius: BorderRadius.circular(16),
+              child: CircleAvatar(
+                radius: 16,
+                backgroundColor: _balticBlue.withValues(alpha: 0.18),
+                child: Text(
+                  userInitial,
+                  style: const TextStyle(
+                    color: _balticBlue,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ),
@@ -619,6 +662,7 @@ class _SignalChatPageState extends State<SignalChatPage> {
                 ? _syncInbox
                 : null,
             onScanQr: !_busy ? _scanAccountQr : null,
+            onShowQr: _showMyQrCode,
             onToggleAutoSync: (enabled) {
               _updateLocalOptions(
                 _localOptions.copyWith(autoSyncEnabled: enabled),
@@ -1448,6 +1492,7 @@ class _SettingsTab extends StatelessWidget {
     required this.linkedAccount,
     required this.onSync,
     required this.onScanQr,
+    required this.onShowQr,
     required this.onToggleAutoSync,
     required this.onToggleMultiDeviceHints,
     required this.onSetPreferredCamera,
@@ -1462,6 +1507,7 @@ class _SettingsTab extends StatelessWidget {
   final AccountQrPayload? linkedAccount;
   final VoidCallback? onSync;
   final VoidCallback? onScanQr;
+  final VoidCallback? onShowQr;
   final ValueChanged<bool> onToggleAutoSync;
   final ValueChanged<bool> onToggleMultiDeviceHints;
   final ValueChanged<String> onSetPreferredCamera;
@@ -1516,6 +1562,11 @@ class _SettingsTab extends StatelessWidget {
                 label: 'Scan Peer QR',
                 icon: Icons.qr_code_scanner_rounded,
                 onPressed: onScanQr,
+              ),
+              _ActionButton(
+                label: 'Show My QR',
+                icon: Icons.qr_code_rounded,
+                onPressed: onShowQr,
               ),
             ],
           ),
