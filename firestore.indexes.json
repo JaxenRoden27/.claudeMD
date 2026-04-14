@@ -2,7 +2,7 @@
   "indexes": [
     {
       "collectionGroup": "device_messages",
-      "queryScope": "COLLECTION",
+      "queryScope": "COLLECTION_GROUP",
       "fields": [
         {
           "fieldPath": "recipientUserId",
@@ -20,7 +20,7 @@
     },
     {
       "collectionGroup": "device_messages",
-      "queryScope": "COLLECTION",
+      "queryScope": "COLLECTION_GROUP",
       "fields": [
         {
           "fieldPath": "recipientUserId",
@@ -42,7 +42,7 @@
     },
     {
       "collectionGroup": "device_messages",
-      "queryScope": "COLLECTION",
+      "queryScope": "COLLECTION_GROUP",
       "fields": [
         {
           "fieldPath": "senderUserId",
@@ -56,7 +56,7 @@
     },
     {
       "collectionGroup": "attachments",
-      "queryScope": "COLLECTION",
+      "queryScope": "COLLECTION_GROUP",
       "fields": [
         {
           "fieldPath": "messageId",
@@ -70,7 +70,7 @@
     },
     {
       "collectionGroup": "one_time_prekeys",
-      "queryScope": "COLLECTION",
+      "queryScope": "COLLECTION_GROUP",
       "fields": [
         {
           "fieldPath": "deviceId",
@@ -88,7 +88,7 @@
     },
     {
       "collectionGroup": "members",
-      "queryScope": "COLLECTION",
+      "queryScope": "COLLECTION_GROUP",
       "fields": [
         {
           "fieldPath": "userId",
@@ -102,7 +102,7 @@
     },
     {
       "collectionGroup": "key_audit_events",
-      "queryScope": "COLLECTION",
+      "queryScope": "COLLECTION_GROUP",
       "fields": [
         {
           "fieldPath": "ownerUserId",

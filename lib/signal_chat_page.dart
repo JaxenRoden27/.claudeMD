@@ -213,7 +213,13 @@ class _SignalChatPageState extends State<SignalChatPage> {
 
   Future<void> _syncInbox() async {
     final repository = _repository;
-    if (repository == null) {
+    final peerUserId = _peerUserId;
+    if (repository == null || peerUserId == null) {
+      if (mounted) {
+        setState(() {
+          _status = 'Link a peer account before syncing inbox.';
+        });
+      }
       return;
     }
 
@@ -224,7 +230,7 @@ class _SignalChatPageState extends State<SignalChatPage> {
 
     try {
       final imported = await repository.syncPendingMessages(
-        peerUserId: _peerUserId,
+        peerUserId: peerUserId,
       );
       await _reloadLocalState();
       if (!mounted) {
@@ -481,6 +487,12 @@ class _SignalChatPageState extends State<SignalChatPage> {
     final dark = Theme.of(context).brightness == Brightness.dark;
     final canOpenChat =
         widget.bootstrapState.firebaseReady && _peerUserId != null;
+    final userLabel = (widget.user.displayName?.trim().isNotEmpty ?? false)
+        ? widget.user.displayName!.trim()
+        : (widget.user.email?.trim().isNotEmpty ?? false)
+        ? widget.user.email!.trim()
+        : 'User';
+    final userInitial = userLabel.substring(0, 1).toUpperCase();
 
     return Scaffold(
       appBar: AppBar(
@@ -493,7 +505,7 @@ class _SignalChatPageState extends State<SignalChatPage> {
               radius: 16,
               backgroundColor: _balticBlue.withValues(alpha: 0.18),
               child: Text(
-                (widget.user.displayName ?? widget.user.email ?? 'U').substring(0, 1).toUpperCase(),
+                userInitial,
                 style: const TextStyle(
                   color: _balticBlue,
                   fontWeight: FontWeight.w700,
@@ -506,7 +518,7 @@ class _SignalChatPageState extends State<SignalChatPage> {
               mainAxisSize: MainAxisSize.min,
               children: <Widget>[
                 Text(
-                  widget.user.displayName ?? widget.user.email ?? 'User',
+                  userLabel,
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
@@ -526,7 +538,9 @@ class _SignalChatPageState extends State<SignalChatPage> {
         actions: <Widget>[
           IconButton(
             tooltip: 'Sync inbox',
-            onPressed: widget.bootstrapState.firebaseReady && !_busy
+            onPressed: widget.bootstrapState.firebaseReady &&
+                    !_busy &&
+                    _peerUserId != null
                 ? _syncInbox
                 : null,
             icon: const Icon(Icons.sync_rounded),
@@ -753,6 +767,15 @@ class _ConversationMetaCard extends StatelessWidget {
   final String peerUserId;
   final List<LocalTrustRecord> trustRecords;
 
+  String _fingerprintPreview(String hash) {
+    final trimmed = hash.trim();
+    if (trimmed.isEmpty) {
+      return 'unknown';
+    }
+    final end = trimmed.length < 10 ? trimmed.length : 10;
+    return trimmed.substring(0, end);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -784,7 +807,7 @@ class _ConversationMetaCard extends StatelessWidget {
           Text(
             trustRecords.isEmpty
                 ? 'No trust snapshots yet.'
-                : 'Known peer device fingerprints: ${trustRecords.map((record) => '${record.deviceId}:${record.identityKeyHash.substring(0, 10)}').join('  ')}',
+                : 'Known peer device fingerprints: ${trustRecords.map((record) => '${record.deviceId}:${_fingerprintPreview(record.identityKeyHash)}').join('  ')}',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
               color: dark ? _textSecondaryDark : _textSecondaryLight,
             ),
