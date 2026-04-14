@@ -279,9 +279,17 @@ class SignalMessageRepository {
       return null;
     }
 
-    final inserted = await _storeInboundRecord(record);
-    if (inserted && record.deliveryState == 'queued') {
-      await snap.reference.update(<String, dynamic>{'deliveryState': 'delivered'});
+    bool inserted = false;
+    try {
+      inserted = await _storeInboundRecord(record);
+      if (inserted && record.deliveryState == 'queued') {
+        await snap.reference.update(<String, dynamic>{'deliveryState': 'delivered'});
+      }
+    } catch (e) {
+      if (record.deliveryState == 'queued') {
+        await snap.reference.update(<String, dynamic>{'deliveryState': 'failed'});
+      }
+      return null;
     }
 
     final messages = await _localStore.loadConversationMessages(conversationId);
