@@ -8,8 +8,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
-import 'app_feature_services.dart';
-import 'auth_service.dart';
+import 'services/app_feature_services.dart';
+import 'auth/auth_service.dart';
 import 'firebase_options.dart';
 import 'signal/signal_fcm_coordinator.dart';
 import 'signal/signal_message_repository.dart';
@@ -399,7 +399,7 @@ class _SignalChatPageState extends State<SignalChatPage> {
       _peerUserId = parsed.userId;
       _status = 'Linked with ${parsed.label}.';
     });
-    
+
     await _reloadLocalState();
   }
 
@@ -581,7 +581,8 @@ class _SignalChatPageState extends State<SignalChatPage> {
         actions: <Widget>[
           IconButton(
             tooltip: 'Sync inbox',
-            onPressed: widget.bootstrapState.firebaseReady &&
+            onPressed:
+                widget.bootstrapState.firebaseReady &&
                     !_busy &&
                     _peerUserId != null
                 ? _syncInbox
@@ -947,7 +948,7 @@ class _MessagesPanel extends StatelessWidget {
                                   width: 220,
                                   height: 170,
                                   fit: BoxFit.cover,
-                                )
+                                ),
                               )
                             else
                               Text(
@@ -1543,7 +1544,10 @@ class _SettingsTab extends StatelessWidget {
                     style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(height: 4),
-                  Text('UID: ${user.uid}', style: Theme.of(context).textTheme.bodySmall),
+                  Text(
+                    'UID: ${user.uid}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
                 ],
               ),
             ),
