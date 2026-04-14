@@ -1,9 +1,9 @@
 {
-    "name": "claude_md_final",
-    "short_name": "claude_md_final",
+    "name": "Cipher Courier",
+    "short_name": "Cipher Courier",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
+    "background_color": "#1F2937",
     "theme_color": "#0175C2",
     "description": "A new Flutter project.",
     "orientation": "portrait-primary",
