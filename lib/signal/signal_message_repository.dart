@@ -215,21 +215,34 @@ class SignalMessageRepository {
       for (final doc in snap.docs) {
         final record = SignalDeliveryRecord.fromFirestore(doc.id, doc.data());
 
-        final inserted = await _runStep(
-          'decrypt delivery ${record.deliveryId}',
-          () => _storeInboundRecord(record),
-        );
-        if (inserted) {
-          imported++;
-        }
-
-        if (record.deliveryState == 'queued') {
-          await _runStep(
-            'mark delivery ${record.deliveryId} as delivered',
-            () => doc.reference.update(<String, dynamic>{
-              'deliveryState': 'delivered',
-            }),
+        try {
+          final inserted = await _runStep(
+            'decrypt delivery ${record.deliveryId}',
+            () => _storeInboundRecord(record),
           );
+          if (inserted) {
+            imported++;
+          }
+
+          if (record.deliveryState == 'queued') {
+            await _runStep(
+              'mark delivery ${record.deliveryId} as delivered',
+              () => doc.reference.update(<String, dynamic>{
+                'deliveryState': 'delivered',
+              }),
+            );
+          }
+        } catch (e) {
+          // If decryption completely fails (e.g. InvalidKeyIdException due to stale emulator data),
+          // mark it as failed so it stops crashing the sync loop and causing a poison pill.
+          if (record.deliveryState == 'queued') {
+            await _runStep(
+              'mark delivery ${record.deliveryId} as failed',
+              () => doc.reference.update(<String, dynamic>{
+                'deliveryState': 'failed',
+              }),
+            );
+          }
         }
       }
 
