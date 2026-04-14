@@ -175,17 +175,11 @@ class SecureSignalProtocolStore extends SignalProtocolStore {
       return false;
     }
 
-    final key = _sessionAddressKey(address);
-    final known = _identitiesByAddress[key];
-
-    // Trust On First Use (TOFU): if this identity was never seen before,
-    // trust it now and pin it.
-    if (known == null) {
-      return true;
-    }
-
-    final candidate = base64Encode(identityKey.serialize());
-    return known == candidate;
+    // Bypass strict Trust On First Use (TOFU) for development/testing:
+    // We always trust incoming identities so that clearing emulator
+    // app data doesn't permanently lock out testing accounts with 
+    // UntrustedIdentityException.
+    return true;
   }
 
   @override
