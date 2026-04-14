@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import 'local_encrypted_chat_store.dart';
@@ -41,6 +43,13 @@ class SignalMessageRepository {
 
   final String localUserId;
   final String localDeviceId;
+
+  final _inboxUpdatesController = StreamController<void>.broadcast();
+  Stream<void> get inboxUpdates => _inboxUpdatesController.stream;
+
+  void dispose() {
+    _inboxUpdatesController.close();
+  }
 
   Future<void> registerCurrentDevice() {
     return _signalService.registerUserOnInstall(
@@ -215,21 +224,34 @@ class SignalMessageRepository {
       for (final doc in snap.docs) {
         final record = SignalDeliveryRecord.fromFirestore(doc.id, doc.data());
 
-        final inserted = await _runStep(
-          'decrypt delivery ${record.deliveryId}',
-          () => _storeInboundRecord(record),
-        );
-        if (inserted) {
-          imported++;
-        }
-
-        if (record.deliveryState == 'queued') {
-          await _runStep(
-            'mark delivery ${record.deliveryId} as delivered',
-            () => doc.reference.update(<String, dynamic>{
-              'deliveryState': 'delivered',
-            }),
+        try {
+          final inserted = await _runStep(
+            'decrypt delivery ${record.deliveryId}',
+            () => _storeInboundRecord(record),
           );
+          if (inserted) {
+            imported++;
+          }
+
+          if (record.deliveryState == 'queued') {
+            await _runStep(
+              'mark delivery ${record.deliveryId} as delivered',
+              () => doc.reference.update(<String, dynamic>{
+                'deliveryState': 'delivered',
+              }),
+            );
+          }
+        } catch (e) {
+          // If decryption completely fails (e.g. InvalidKeyIdException due to stale emulator data),
+          // mark it as failed so it stops crashing the sync loop and causing a poison pill.
+          if (record.deliveryState == 'queued') {
+            await _runStep(
+              'mark delivery ${record.deliveryId} as failed',
+              () => doc.reference.update(<String, dynamic>{
+                'deliveryState': 'failed',
+              }),
+            );
+          }
         }
       }
 
@@ -266,9 +288,17 @@ class SignalMessageRepository {
       return null;
     }
 
-    final inserted = await _storeInboundRecord(record);
-    if (inserted && record.deliveryState == 'queued') {
-      await snap.reference.update(<String, dynamic>{'deliveryState': 'delivered'});
+    bool inserted = false;
+    try {
+      inserted = await _storeInboundRecord(record);
+      if (inserted && record.deliveryState == 'queued') {
+        await snap.reference.update(<String, dynamic>{'deliveryState': 'delivered'});
+      }
+    } catch (e) {
+      if (record.deliveryState == 'queued') {
+        await snap.reference.update(<String, dynamic>{'deliveryState': 'failed'});
+      }
+      return null;
     }
 
     final messages = await _localStore.loadConversationMessages(conversationId);
@@ -290,6 +320,27 @@ class SignalMessageRepository {
     required String peerUserId,
   }) {
     return _localStore.loadTrustRecordsForUser(peerUserId);
+  }
+
+  Future<List<LocalTrustRecord>> loadAllKnownPeers() {
+    return _localStore.loadAllKnownPeers();
+  }
+
+  Future<void> ensurePeerTrust({
+    required String peerUserId,
+    required String label,
+  }) async {
+    final bundles = await _signalService.fetchActiveDeviceBundles(userId: peerUserId);
+    for (final bundle in bundles) {
+      await _localStore.upsertTrustRecord(
+        userId: bundle.userId,
+        deviceId: bundle.deviceId,
+        identityKeyHash: await _signalService.identityKeyDigest(
+          bundle.identityKeyPublicBase64,
+        ),
+        label: label,
+      );
+    }
   }
 
   Future<bool> _storeInboundRecord(SignalDeliveryRecord record) async {
@@ -326,6 +377,7 @@ class SignalMessageRepository {
       ),
     );
 
+    _inboxUpdatesController.add(null);
     return true;
   }
 

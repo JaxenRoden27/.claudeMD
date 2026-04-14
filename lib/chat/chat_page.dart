@@ -1,9 +1,13 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 
 import '../services/app_feature_services.dart';
 import '../auth/auth_service.dart';
@@ -65,6 +69,7 @@ class _ChatPageState extends State<ChatPage> {
 
   List<LocalChatMessage> _messages = const <LocalChatMessage>[];
   List<LocalTrustRecord> _trustRecords = const <LocalTrustRecord>[];
+  List<LocalTrustRecord> _allPeers = const <LocalTrustRecord>[];
   LocalOptions _localOptions = LocalOptions.defaults;
 
   int _selectedTabIndex = 0;
@@ -131,6 +136,8 @@ class _ChatPageState extends State<ChatPage> {
         _status = 'Secure messaging ready.';
       });
 
+      repository.inboxUpdates.listen((_) => _reloadLocalState());
+
       await _bindForegroundWakeHandler();
       await _reloadLocalState();
     } catch (e) {
@@ -174,22 +181,23 @@ class _ChatPageState extends State<ChatPage> {
 
   Future<void> _reloadLocalState() async {
     final repository = _repository;
+    if (repository == null) return;
+
     final peerUserId = _peerUserId;
-    if (repository == null || peerUserId == null) {
-      return;
+    final allPeers = await repository.loadAllKnownPeers();
+    
+    List<LocalChatMessage> messages = const [];
+    List<LocalTrustRecord> trustRecords = const [];
+
+    if (peerUserId != null) {
+      messages = await repository.loadConversationMessages(peerUserId: peerUserId);
+      trustRecords = await repository.loadTrustState(peerUserId: peerUserId);
     }
 
-    final messages = await repository.loadConversationMessages(
-      peerUserId: peerUserId,
-    );
-    final trustRecords = await repository.loadTrustState(
-      peerUserId: peerUserId,
-    );
+    if (!mounted) return;
 
-    if (!mounted) {
-      return;
-    }
     setState(() {
+      _allPeers = allPeers;
       _messages = messages;
       _trustRecords = trustRecords;
     });
@@ -197,11 +205,10 @@ class _ChatPageState extends State<ChatPage> {
 
   Future<void> _syncInbox() async {
     final repository = _repository;
-    final peerUserId = _peerUserId;
-    if (repository == null || peerUserId == null) {
+    if (repository == null) {
       if (mounted) {
         setState(() {
-          _status = 'Link a peer account before syncing inbox.';
+          _status = 'Secure messaging not ready.';
         });
       }
       return;
@@ -213,9 +220,7 @@ class _ChatPageState extends State<ChatPage> {
     });
 
     try {
-      final imported = await repository.syncPendingMessages(
-        peerUserId: peerUserId,
-      );
+      final imported = await repository.syncPendingMessages(peerUserId: null);
       await _reloadLocalState();
       if (!mounted) {
         return;
@@ -376,6 +381,28 @@ class _ChatPageState extends State<ChatPage> {
     }
 
     setState(() {
+      _busy = true;
+      _status = 'Establishing secure connection with ${parsed.label}...';
+    });
+
+    try {
+      await _repository?.ensurePeerTrust(
+        peerUserId: parsed.userId,
+        label: parsed.label,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _busy = false;
+        _status = 'Failed to link account: $e';
+      });
+      return;
+    }
+
+    if (!mounted) return;
+
+    setState(() {
+      _busy = false;
       _linkedAccount = parsed;
       _peerUserId = parsed.userId;
       _status = 'Linked with ${parsed.label}.';
@@ -466,6 +493,42 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
+  void _showMyQrCode() {
+    final payload = AccountQrPayload(
+      userId: widget.user.uid,
+      deviceId: SignalService.defaultDeviceId,
+      label: widget.user.displayName ?? widget.user.email ?? 'User',
+    );
+    final rawJson = jsonEncode(payload.toJson());
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('My QR Code'),
+          content: SizedBox(
+            width: 250,
+            height: 250,
+            child: Center(
+              child: QrImageView(
+                data: rawJson,
+                version: QrVersions.auto,
+                size: 200.0,
+                backgroundColor: Colors.white,
+              ),
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
@@ -485,14 +548,18 @@ class _ChatPageState extends State<ChatPage> {
         titleSpacing: 16,
         title: Row(
           children: <Widget>[
-            CircleAvatar(
-              radius: 16,
-              backgroundColor: _balticBlue.withValues(alpha: 0.18),
-              child: Text(
-                userInitial,
-                style: const TextStyle(
-                  color: _balticBlue,
-                  fontWeight: FontWeight.w700,
+            InkWell(
+              onTap: _showMyQrCode,
+              borderRadius: BorderRadius.circular(16),
+              child: CircleAvatar(
+                radius: 16,
+                backgroundColor: _balticBlue.withValues(alpha: 0.18),
+                child: Text(
+                  userInitial,
+                  style: const TextStyle(
+                    color: _balticBlue,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ),
@@ -545,32 +612,31 @@ class _ChatPageState extends State<ChatPage> {
             status: _status,
             warning: widget.bootstrapState.warning,
             busy: _busy,
-            messageCount: _messages.length,
-            lastMessage: _messages.isEmpty ? null : _messages.last,
-            peerUserId: _peerUserId,
-            onOpenConversation: canOpenChat
-                ? () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute<void>(
-                        builder: (context) => _ChatDetailPage(
-                          dark: dark,
-                          user: widget.user,
-                          peerUserId: _peerUserId!,
-                          trustRecords: _trustRecords,
-                          messages: _messages,
-                          composerController: _composerController,
-                          busy: _busy,
-                          firebaseReady: widget.bootstrapState.firebaseReady,
-                          status: _status,
-                          warning: widget.bootstrapState.warning,
-                          onSend: _sendMessage,
-                          onSendImage: _sendImageMessage,
-                          onSync: _syncInbox,
-                        ),
-                      ),
-                    );
-                  }
-                : null,
+            peers: _allPeers,
+            onOpenConversation: (LocalTrustRecord peer) {
+              setState(() {
+                _peerUserId = peer.userId;
+              });
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (context) => _ChatDetailPage(
+                    dark: dark,
+                    user: widget.user,
+                    peerUserId: peer.userId,
+                    peerLabel: peer.label ?? peer.userId,
+                    repository: _repository!,
+                    composerController: _composerController,
+                    busy: _busy,
+                    firebaseReady: widget.bootstrapState.firebaseReady,
+                    status: _status,
+                    warning: widget.bootstrapState.warning,
+                    onSend: _sendMessage,
+                    onSendImage: _sendImageMessage,
+                    onSync: _syncInbox,
+                  ),
+                ),
+              ).then((_) => _reloadLocalState());
+            },
             onSync: widget.bootstrapState.firebaseReady && !_busy
                 ? _syncInbox
                 : null,
@@ -603,6 +669,7 @@ class _ChatPageState extends State<ChatPage> {
                 ? _syncInbox
                 : null,
             onScanQr: !_busy ? _scanAccountQr : null,
+            onShowQr: _showMyQrCode,
             onToggleAutoSync: (enabled) {
               _updateLocalOptions(
                 _localOptions.copyWith(autoSyncEnabled: enabled),
@@ -1007,9 +1074,7 @@ class _ConversationsTab extends StatelessWidget {
     required this.status,
     required this.warning,
     required this.busy,
-    required this.messageCount,
-    required this.lastMessage,
-    required this.peerUserId,
+    required this.peers,
     required this.onOpenConversation,
     required this.onSync,
   });
@@ -1019,106 +1084,88 @@ class _ConversationsTab extends StatelessWidget {
   final String status;
   final String? warning;
   final bool busy;
-  final int messageCount;
-  final LocalChatMessage? lastMessage;
-  final String? peerUserId;
-  final VoidCallback? onOpenConversation;
+  final List<LocalTrustRecord> peers;
+  final void Function(LocalTrustRecord)? onOpenConversation;
   final VoidCallback? onSync;
 
   @override
   Widget build(BuildContext context) {
-    final subtitle = lastMessage == null
-        ? 'No messages yet.'
-        : lastMessage!.plaintext;
-    final timestamp = lastMessage == null
-        ? 'now'
-        : '${lastMessage!.createdAt.hour.toString().padLeft(2, '0')}:${lastMessage!.createdAt.minute.toString().padLeft(2, '0')}';
-
     return Container(
       color: dark ? _bgDark : _bgLight,
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
-        children: <Widget>[
-          _StatusCard(status: status, busy: busy, dark: dark, warning: warning),
-          const SizedBox(height: 12),
-          Text(
-            'Conversations',
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 10),
-          if (peerUserId != null)
-            Card(
-              margin: EdgeInsets.zero,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: ListTile(
-                onTap: onOpenConversation,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 10,
+      child: CustomScrollView(
+        slivers: <Widget>[
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+            sliver: SliverList(
+              delegate: SliverChildListDelegate([
+                _StatusCard(status: status, busy: busy, dark: dark, warning: warning),
+                const SizedBox(height: 12),
+                Text(
+                  'Conversations',
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
                 ),
-                leading: CircleAvatar(
-                  backgroundColor: _honeyBronze.withValues(alpha: 0.18),
-                  child: const Icon(Icons.person, color: _honeyBronze),
-                ),
-                title: Text(
-                  'Peer: $peerUserId',
-                  style: const TextStyle(fontWeight: FontWeight.w700),
-                ),
-                subtitle: Text(
-                  subtitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                trailing: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: <Widget>[
-                    Text(
-                      timestamp,
-                      style: Theme.of(context).textTheme.labelSmall,
+                const SizedBox(height: 10),
+                if (peers.isEmpty)
+                  const Card(
+                    child: ListTile(
+                      leading: Icon(Icons.inbox),
+                      title: Text('No active conversations.'),
+                      subtitle: Text('Scan a QR code to securely message a peer.'),
                     ),
-                    const SizedBox(height: 6),
-                    if (messageCount > 0)
-                      CircleAvatar(
-                        radius: 11,
-                        backgroundColor: _blazeOrange,
-                        child: Text(
-                          '$messageCount',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 11,
-                          ),
-                        ),
+                  ),
+              ]),
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  final peer = peers[index];
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: ListTile(
+                      onTap: onOpenConversation != null ? () => onOpenConversation!(peer) : null,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
                       ),
-                  ],
-                ),
-              ),
-            )
-          else
-            const Card(
-              child: ListTile(
-                leading: Icon(Icons.qr_code_scanner_rounded),
-                title: Text('No active conversations'),
-                subtitle: Text('Use the Settings tab to link with a peer.'),
+                      leading: CircleAvatar(
+                        backgroundColor: _honeyBronze.withValues(alpha: 0.18),
+                        child: const Icon(Icons.person, color: _honeyBronze),
+                      ),
+                      title: Text(
+                        peer.label ?? 'Unknown Peer',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      subtitle: Text(
+                        'Device: ${peer.deviceId}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  );
+                },
+                childCount: peers.length,
               ),
             ),
+          ),
         ],
       ),
     );
   }
 }
 
-class _ChatDetailPage extends StatelessWidget {
+class _ChatDetailPage extends StatefulWidget {
   const _ChatDetailPage({
     required this.dark,
     required this.user,
     required this.peerUserId,
-    required this.trustRecords,
-    required this.messages,
+    required this.peerLabel,
+    required this.repository,
     required this.composerController,
     required this.busy,
     required this.firebaseReady,
@@ -1132,8 +1179,8 @@ class _ChatDetailPage extends StatelessWidget {
   final bool dark;
   final User user;
   final String peerUserId;
-  final List<LocalTrustRecord> trustRecords;
-  final List<LocalChatMessage> messages;
+  final String peerLabel;
+  final SignalMessageRepository repository;
   final TextEditingController composerController;
   final bool busy;
   final bool firebaseReady;
@@ -1144,60 +1191,99 @@ class _ChatDetailPage extends StatelessWidget {
   final VoidCallback onSync;
 
   @override
+  State<_ChatDetailPage> createState() => _ChatDetailPageState();
+}
+
+class _ChatDetailPageState extends State<_ChatDetailPage> {
+  List<LocalChatMessage> _messages = const [];
+  List<LocalTrustRecord> _trustRecords = const [];
+  StreamSubscription<void>? _sub;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+    _sub = widget.repository.inboxUpdates.listen((_) {
+      if (mounted) _loadData();
+    });
+  }
+
+  @override
+  void dispose() {
+    _sub?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadData() async {
+    final messages = await widget.repository.loadConversationMessages(
+      peerUserId: widget.peerUserId,
+    );
+    final trustRecords = await widget.repository.loadTrustState(
+      peerUserId: widget.peerUserId,
+    );
+    if (mounted) {
+      setState(() {
+        _messages = messages;
+        _trustRecords = trustRecords;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('Chat: $peerUserId'),
+        title: Text(widget.peerLabel),
         actions: <Widget>[
           IconButton(
-            onPressed: busy ? null : onSync,
+            onPressed: widget.busy ? null : widget.onSync,
             icon: const Icon(Icons.sync_rounded),
             tooltip: 'Sync',
           ),
         ],
       ),
       body: Container(
-        color: dark ? _bgDark : _bgLight,
+        color: widget.dark ? _bgDark : _bgLight,
         child: SafeArea(
           child: Column(
             children: <Widget>[
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
                 child: _StatusCard(
-                  status: status,
-                  busy: busy,
-                  dark: dark,
-                  warning: warning,
+                  status: widget.status,
+                  busy: widget.busy,
+                  dark: widget.dark,
+                  warning: widget.warning,
                 ),
               ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
                 child: _ConversationMetaCard(
-                  dark: dark,
-                  activeUser: user,
-                  peerUserId: peerUserId,
-                  trustRecords: trustRecords,
+                  dark: widget.dark,
+                  activeUser: widget.user,
+                  peerUserId: widget.peerUserId,
+                  trustRecords: _trustRecords,
                 ),
               ),
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
                   child: _MessagesPanel(
-                    dark: dark,
-                    messages: messages,
-                    activeUserId: user.uid,
-                    peerLabel: 'Peer',
+                    dark: widget.dark,
+                    messages: _messages,
+                    activeUserId: widget.user.uid,
+                    peerLabel: widget.peerLabel,
                   ),
                 ),
               ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
                 child: _ComposerBar(
-                  controller: composerController,
-                  dark: dark,
-                  enabled: firebaseReady && !busy,
-                  onSend: onSend,
-                  onSendImage: onSendImage,
+                  controller: widget.composerController,
+                  dark: widget.dark,
+                  enabled: widget.firebaseReady && !widget.busy,
+                  onSend: widget.onSend,
+                  onSendImage: widget.onSendImage,
                 ),
               ),
             ],
@@ -1432,6 +1518,7 @@ class _SettingsTab extends StatelessWidget {
     required this.linkedAccount,
     required this.onSync,
     required this.onScanQr,
+    required this.onShowQr,
     required this.onToggleAutoSync,
     required this.onToggleMultiDeviceHints,
     required this.onSetPreferredCamera,
@@ -1446,6 +1533,7 @@ class _SettingsTab extends StatelessWidget {
   final AccountQrPayload? linkedAccount;
   final VoidCallback? onSync;
   final VoidCallback? onScanQr;
+  final VoidCallback? onShowQr;
   final ValueChanged<bool> onToggleAutoSync;
   final ValueChanged<bool> onToggleMultiDeviceHints;
   final ValueChanged<String> onSetPreferredCamera;
@@ -1500,6 +1588,11 @@ class _SettingsTab extends StatelessWidget {
                 label: 'Scan Peer QR',
                 icon: Icons.qr_code_scanner_rounded,
                 onPressed: onScanQr,
+              ),
+              _ActionButton(
+                label: 'Show My QR',
+                icon: Icons.qr_code_rounded,
+                onPressed: onShowQr,
               ),
             ],
           ),
