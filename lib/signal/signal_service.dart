@@ -52,6 +52,7 @@ class SignalService {
     String deviceId = defaultDeviceId,
     int preKeyStartId = 1,
     int preKeyBatchCount = 100,
+    String? profileLabel,
   }) async {
     late final IdentityKeyPair identityKeyPair;
     late final int registrationId;
@@ -108,6 +109,9 @@ class SignalService {
       _publicBundles.doc(userId),
       <String, dynamic>{
         'userId': userId,
+        'label': (profileLabel?.trim().isNotEmpty ?? false)
+            ? profileLabel!.trim()
+            : userId,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
         'deviceListVersion': 1,

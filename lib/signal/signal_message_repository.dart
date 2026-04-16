@@ -51,10 +51,11 @@ class SignalMessageRepository {
     _inboxUpdatesController.close();
   }
 
-  Future<void> registerCurrentDevice() {
+  Future<void> registerCurrentDevice({String? profileLabel}) {
     return _signalService.registerUserOnInstall(
       userId: localUserId,
       deviceId: localDeviceId,
+      profileLabel: profileLabel,
     );
   }
 
