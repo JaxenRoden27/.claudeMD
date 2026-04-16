@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -34,6 +35,7 @@ const _textPrimaryDark = Color(0xFFF9FAFB);
 const _textSecondaryDark = Color(0xFFD1D5DB);
 const _borderDark = Color(0xFF374151);
 const _imageMessagePrefix = '[image] ';
+const _groupMessagePrefix = '[group-v1] ';
 
 // AppBootstrapState moved to models/app_bootstrap_state.dart
 
@@ -51,7 +53,6 @@ class _ChatPageState extends State<ChatPage> {
   final TextEditingController _composerController = TextEditingController();
   final TextEditingController _forumComposerController =
       TextEditingController();
-  final TextEditingController _groupNameController = TextEditingController();
   final AuthService _authService = AuthService();
   final LocalOptionsService _localOptionsService = LocalOptionsService();
   final ForumsService _forumsService = ForumsService();
@@ -64,8 +65,6 @@ class _ChatPageState extends State<ChatPage> {
   String? _peerUserId;
   AccountQrPayload? _linkedAccount;
 
-  List<LocalChatMessage> _messages = const <LocalChatMessage>[];
-  List<LocalTrustRecord> _trustRecords = const <LocalTrustRecord>[];
   List<LocalTrustRecord> _allPeers = const <LocalTrustRecord>[];
   LocalOptions _localOptions = LocalOptions.defaults;
 
@@ -88,7 +87,6 @@ class _ChatPageState extends State<ChatPage> {
   void dispose() {
     _composerController.dispose();
     _forumComposerController.dispose();
-    _groupNameController.dispose();
     _fcmCoordinator?.dispose();
     super.dispose();
   }
@@ -110,6 +108,24 @@ class _ChatPageState extends State<ChatPage> {
     await _localOptionsService.save(options);
   }
 
+  String _preferredProfileLabel() {
+    final displayName = widget.user.displayName?.trim();
+    if (displayName != null && displayName.isNotEmpty) {
+      return displayName;
+    }
+
+    final email = widget.user.email?.trim();
+    if (email != null && email.isNotEmpty) {
+      final atIndex = email.indexOf('@');
+      if (atIndex > 0) {
+        return email.substring(0, atIndex);
+      }
+      return email;
+    }
+
+    return 'User';
+  }
+
   Future<void> _initializeSignal() async {
     if (!widget.bootstrapState.firebaseReady) return;
 
@@ -125,7 +141,9 @@ class _ChatPageState extends State<ChatPage> {
         localDeviceId: SignalService.defaultDeviceId,
       );
 
-      await repository.registerCurrentDevice();
+      await repository.registerCurrentDevice(
+        profileLabel: _preferredProfileLabel(),
+      );
 
       setState(() {
         _repository = repository;
@@ -184,22 +202,17 @@ class _ChatPageState extends State<ChatPage> {
     final peerUserId = _peerUserId;
     final allPeers = await repository.loadAllKnownPeers();
 
-    List<LocalChatMessage> messages = const [];
-    List<LocalTrustRecord> trustRecords = const [];
-
     if (peerUserId != null) {
-      messages = await repository.loadConversationMessages(
+      await repository.loadConversationMessages(
         peerUserId: peerUserId,
       );
-      trustRecords = await repository.loadTrustState(peerUserId: peerUserId);
+      await repository.loadTrustState(peerUserId: peerUserId);
     }
 
     if (!mounted) return;
 
     setState(() {
       _allPeers = allPeers;
-      _messages = messages;
-      _trustRecords = trustRecords;
     });
   }
 
@@ -456,14 +469,17 @@ class _ChatPageState extends State<ChatPage> {
     }
   }
 
-  Future<void> _createGroup() async {
+  Future<void> _createGroup({
+    required String name,
+    List<String> initialMemberUserIds = const <String>[],
+  }) async {
     final userId = _activeUserId;
     if (userId == null) {
       return;
     }
 
-    final name = _groupNameController.text.trim();
-    if (name.isEmpty) {
+    final trimmedName = name.trim();
+    if (trimmedName.isEmpty) {
       return;
     }
 
@@ -471,8 +487,11 @@ class _ChatPageState extends State<ChatPage> {
       _busy = true;
     });
     try {
-      await _appGroupsService.createGroup(createdBy: userId, name: name);
-      _groupNameController.clear();
+      await _appGroupsService.createGroup(
+        createdBy: userId,
+        name: trimmedName,
+        initialMemberUserIds: initialMemberUserIds,
+      );
       if (!mounted) {
         return;
       }
@@ -534,8 +553,6 @@ class _ChatPageState extends State<ChatPage> {
   @override
   Widget build(BuildContext context) {
     final dark = Theme.of(context).brightness == Brightness.dark;
-    final canOpenChat =
-        widget.bootstrapState.firebaseReady && _peerUserId != null;
     final userLabel = (widget.user.displayName?.trim().isNotEmpty ?? false)
         ? widget.user.displayName!.trim()
         : (widget.user.email?.trim().isNotEmpty ?? false)
@@ -658,9 +675,17 @@ class _ChatPageState extends State<ChatPage> {
             dark: dark,
             user: widget.user,
             appGroupsService: _appGroupsService,
-            groupNameController: _groupNameController,
+            repository: _repository,
             busy: _busy,
             onCreateGroup: _createGroup,
+            onStatusChange: (message) {
+              if (!mounted) {
+                return;
+              }
+              setState(() {
+                _status = message;
+              });
+            },
           ),
           _SettingsTab(
             dark: dark,
@@ -1008,6 +1033,71 @@ String? _extractImageMessageUrl(String plaintext) {
   return candidate;
 }
 
+class _GroupEnvelopePayload {
+  const _GroupEnvelopePayload({
+    required this.groupId,
+    required this.groupMessageId,
+    required this.body,
+  });
+
+  final String groupId;
+  final String groupMessageId;
+  final String body;
+}
+
+String _encodeGroupEnvelope({
+  required String groupId,
+  required String groupMessageId,
+  required String body,
+}) {
+  final payload = jsonEncode(<String, dynamic>{
+    'groupId': groupId,
+    'groupMessageId': groupMessageId,
+    'body': body,
+  });
+  return '$_groupMessagePrefix$payload';
+}
+
+_GroupEnvelopePayload? _parseGroupEnvelope(String plaintext) {
+  final trimmed = plaintext.trim();
+  if (!trimmed.startsWith(_groupMessagePrefix)) {
+    return null;
+  }
+
+  final payload = trimmed.substring(_groupMessagePrefix.length).trim();
+  if (payload.isEmpty) {
+    return null;
+  }
+
+  try {
+    final decoded = jsonDecode(payload);
+    if (decoded is! Map<String, dynamic>) {
+      return null;
+    }
+
+    final groupId = decoded['groupId'] as String?;
+    final groupMessageId = decoded['groupMessageId'] as String?;
+    final body = decoded['body'] as String?;
+
+    if (groupId == null ||
+        groupId.isEmpty ||
+        groupMessageId == null ||
+        groupMessageId.isEmpty ||
+        body == null ||
+        body.isEmpty) {
+      return null;
+    }
+
+    return _GroupEnvelopePayload(
+      groupId: groupId,
+      groupMessageId: groupMessageId,
+      body: body,
+    );
+  } catch (_) {
+    return null;
+  }
+}
+
 class _ComposerBar extends StatelessWidget {
   const _ComposerBar({
     required this.controller,
@@ -1150,7 +1240,11 @@ class _ConversationsTab extends StatelessWidget {
                       peer.label ?? 'Unknown Peer',
                       style: const TextStyle(fontWeight: FontWeight.w700),
                     ),
-
+                    subtitle: Text(
+                      'Device: ${peer.deviceId}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 );
               }, childCount: peers.length),
@@ -1436,17 +1530,49 @@ class _GroupsTab extends StatelessWidget {
     required this.dark,
     required this.user,
     required this.appGroupsService,
-    required this.groupNameController,
+    required this.repository,
     required this.busy,
     required this.onCreateGroup,
+    required this.onStatusChange,
   });
 
   final bool dark;
   final User user;
   final AppGroupsService appGroupsService;
-  final TextEditingController groupNameController;
+  final SignalMessageRepository? repository;
   final bool busy;
-  final VoidCallback onCreateGroup;
+  final Future<void> Function({
+    required String name,
+    List<String> initialMemberUserIds,
+  }) onCreateGroup;
+  final ValueChanged<String> onStatusChange;
+
+  Future<void> _showCreateGroupDialog(BuildContext context) async {
+    final request = await showDialog<_CreateGroupRequest>(
+      context: context,
+      builder: (_) => _CreateGroupDialog(
+        currentUserId: user.uid,
+        appGroupsService: appGroupsService,
+      ),
+    );
+    if (request == null) {
+      return;
+    }
+
+    try {
+      await onCreateGroup(
+        name: request.name,
+        initialMemberUserIds: request.initialMemberUserIds,
+      );
+    } catch (error) {
+      if (!context.mounted) {
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to create group: $error')),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1469,21 +1595,23 @@ class _GroupsTab extends StatelessWidget {
             ),
             child: Padding(
               padding: const EdgeInsets.all(10),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
-                  Expanded(
-                    child: TextField(
-                      controller: groupNameController,
-                      enabled: !busy,
-                      decoration: const InputDecoration(
-                        hintText: 'New group name',
-                        border: InputBorder.none,
-                      ),
-                    ),
+                  Text(
+                    'Create a group and choose members.',
+                    style: Theme.of(context).textTheme.bodyMedium,
                   ),
-                  IconButton(
-                    onPressed: !busy ? onCreateGroup : null,
-                    icon: const Icon(Icons.add_circle_outline_rounded),
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: FilledButton.icon(
+                      onPressed: busy
+                          ? null
+                          : () => _showCreateGroupDialog(context),
+                      icon: const Icon(Icons.group_add_rounded),
+                      label: const Text('Create Group'),
+                    ),
                   ),
                 ],
               ),
@@ -1491,7 +1619,7 @@ class _GroupsTab extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           StreamBuilder<List<AppGroup>>(
-            stream: appGroupsService.streamGroups(),
+            stream: appGroupsService.streamGroups(currentUserId: user.uid),
             builder: (context, snapshot) {
               if (snapshot.hasError) {
                 return Card(
@@ -1519,15 +1647,927 @@ class _GroupsTab extends StatelessWidget {
                       (group) => Card(
                         margin: const EdgeInsets.only(bottom: 8),
                         child: ListTile(
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute<void>(
+                                builder: (context) => _GroupDetailPage(
+                                  dark: dark,
+                                  user: user,
+                                  group: group,
+                                  appGroupsService: appGroupsService,
+                                  repository: repository,
+                                  onStatusChange: onStatusChange,
+                                ),
+                              ),
+                            );
+                          },
                           leading: const Icon(Icons.group_outlined),
                           title: Text(group.name),
-                          subtitle: Text('Members: ${group.memberCount}'),
+                          subtitle: Text(
+                            'Members: ${group.memberCount} • ${group.isOwner(user.uid) ? 'Owner' : 'Participant'}',
+                          ),
+                          trailing: const Icon(Icons.chevron_right_rounded),
                         ),
                       ),
                     )
                     .toList(growable: false),
               );
             },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CreateGroupRequest {
+  const _CreateGroupRequest({
+    required this.name,
+    required this.initialMemberUserIds,
+  });
+
+  final String name;
+  final List<String> initialMemberUserIds;
+}
+
+class _CreateGroupDialog extends StatefulWidget {
+  const _CreateGroupDialog({
+    required this.currentUserId,
+    required this.appGroupsService,
+  });
+
+  final String currentUserId;
+  final AppGroupsService appGroupsService;
+
+  @override
+  State<_CreateGroupDialog> createState() => _CreateGroupDialogState();
+}
+
+class _CreateGroupDialogState extends State<_CreateGroupDialog> {
+  final TextEditingController _nameController = TextEditingController();
+  final Set<String> _selectedMemberIds = <String>{};
+  String? _validationMessage;
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final name = _nameController.text.trim();
+    if (name.isEmpty) {
+      setState(() {
+        _validationMessage = 'Group name is required.';
+      });
+      return;
+    }
+
+    Navigator.of(context).pop(
+      _CreateGroupRequest(
+        name: name,
+        initialMemberUserIds: _selectedMemberIds.toList(growable: false),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final contentHeight = math.min(
+      460.0,
+      MediaQuery.of(context).size.height * 0.72,
+    );
+
+    return AlertDialog(
+      title: const Text('Create Group'),
+      content: SizedBox(
+        width: 420,
+        height: contentHeight,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            TextField(
+              controller: _nameController,
+              decoration: const InputDecoration(labelText: 'Group name'),
+              onChanged: (_) {
+                if (_validationMessage != null) {
+                  setState(() {
+                    _validationMessage = null;
+                  });
+                }
+              },
+              onSubmitted: (_) => _submit(),
+            ),
+            if (_validationMessage != null) ...<Widget>[
+              const SizedBox(height: 6),
+              Text(
+                _validationMessage!,
+                style: const TextStyle(color: Colors.redAccent),
+              ),
+            ],
+            const SizedBox(height: 14),
+            Text(
+              'Add members now (optional)',
+              style: Theme.of(context).textTheme.titleSmall,
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: StreamBuilder<List<AppUserProfile>>(
+                stream: widget.appGroupsService.streamAvailableUsers(),
+                builder: (context, snapshot) {
+                  if (snapshot.hasError) {
+                    return Text('Failed to load users: ${snapshot.error}');
+                  }
+
+                  final users = (snapshot.data ?? const <AppUserProfile>[])
+                      .where(
+                        (candidate) =>
+                            candidate.userId != widget.currentUserId,
+                      )
+                      .toList(growable: false);
+
+                  if (users.isEmpty) {
+                    return const Center(
+                      child: Text('No other app users found yet.'),
+                    );
+                  }
+
+                  return ListView.builder(
+                    itemCount: users.length,
+                    itemBuilder: (context, index) {
+                      final candidate = users[index];
+                      final selected = _selectedMemberIds.contains(
+                        candidate.userId,
+                      );
+
+                      return CheckboxListTile(
+                        dense: true,
+                        value: selected,
+                        title: Text(
+                          candidate.label,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        onChanged: (value) {
+                          setState(() {
+                            if (value ?? false) {
+                              _selectedMemberIds.add(candidate.userId);
+                            } else {
+                              _selectedMemberIds.remove(candidate.userId);
+                            }
+                          });
+                        },
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('Create'),
+        ),
+      ],
+    );
+  }
+}
+
+class _GroupDetailPage extends StatefulWidget {
+  const _GroupDetailPage({
+    required this.dark,
+    required this.user,
+    required this.group,
+    required this.appGroupsService,
+    required this.repository,
+    required this.onStatusChange,
+  });
+
+  final bool dark;
+  final User user;
+  final AppGroup group;
+  final AppGroupsService appGroupsService;
+  final SignalMessageRepository? repository;
+  final ValueChanged<String> onStatusChange;
+
+  @override
+  State<_GroupDetailPage> createState() => _GroupDetailPageState();
+}
+
+class _GroupDetailPageState extends State<_GroupDetailPage> {
+  final TextEditingController _composerController = TextEditingController();
+
+  StreamSubscription<List<AppGroupMember>>? _memberSubscription;
+  StreamSubscription<void>? _inboxSubscription;
+  StreamSubscription<List<AppUserProfile>>? _userProfilesSubscription;
+
+  List<AppGroupMember> _members = const <AppGroupMember>[];
+  List<_GroupMessageView> _messages = const <_GroupMessageView>[];
+  Map<String, String> _userLabels = const <String, String>{};
+  bool _busy = false;
+  String? _inlineStatus;
+
+  bool get _isCurrentUserMember {
+    return _members.any((member) => member.userId == widget.user.uid);
+  }
+
+  bool get _isCurrentUserOwner {
+    return _members.any(
+      (member) => member.userId == widget.user.uid && member.isOwner,
+    );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+
+    _memberSubscription = widget.appGroupsService
+        .streamGroupMembers(groupId: widget.group.id)
+        .listen((members) {
+          if (!mounted) {
+            return;
+          }
+          setState(() {
+            _members = members;
+          });
+          _reloadMessages();
+        });
+
+    _inboxSubscription = widget.repository?.inboxUpdates.listen((_) {
+      _reloadMessages();
+    });
+
+    _userProfilesSubscription = widget.appGroupsService
+        .streamAvailableUsers()
+        .listen((profiles) {
+          if (!mounted) {
+            return;
+          }
+
+          final mapped = <String, String>{
+            for (final profile in profiles) profile.userId: profile.label,
+          };
+          setState(() {
+            _userLabels = mapped;
+          });
+        });
+  }
+
+  @override
+  void dispose() {
+    _memberSubscription?.cancel();
+    _inboxSubscription?.cancel();
+    _userProfilesSubscription?.cancel();
+    _composerController.dispose();
+    super.dispose();
+  }
+
+  String _labelForUser(String userId) {
+    if (userId == widget.user.uid) {
+      return 'You';
+    }
+    return _userLabels[userId] ?? userId;
+  }
+
+  Future<void> _reloadMessages() async {
+    final repository = widget.repository;
+    if (repository == null) {
+      return;
+    }
+
+    final memberIds = (_members.isEmpty
+            ? widget.group.memberUserIds
+            : _members.map((member) => member.userId))
+        .where((userId) => userId != widget.user.uid)
+        .toSet()
+        .toList(growable: false);
+
+    if (memberIds.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _messages = const <_GroupMessageView>[];
+        });
+      }
+      return;
+    }
+
+    final deduped = <String, _GroupMessageView>{};
+
+    for (final peerUserId in memberIds) {
+      final peerMessages = await repository.loadConversationMessages(
+        peerUserId: peerUserId,
+      );
+
+      for (final localMessage in peerMessages) {
+        final payload = _parseGroupEnvelope(localMessage.plaintext);
+        if (payload == null || payload.groupId != widget.group.id) {
+          continue;
+        }
+
+        final candidate = _GroupMessageView(
+          groupMessageId: payload.groupMessageId,
+          senderUserId: localMessage.senderUserId,
+          body: payload.body,
+          createdAt: localMessage.createdAt,
+          deliveryState: localMessage.deliveryState,
+          outgoing: localMessage.senderUserId == widget.user.uid,
+        );
+
+        final existing = deduped[payload.groupMessageId];
+        if (existing == null || candidate.createdAt.isBefore(existing.createdAt)) {
+          deduped[payload.groupMessageId] = candidate;
+        }
+      }
+    }
+
+    final merged = deduped.values.toList(growable: false)
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _messages = merged;
+    });
+  }
+
+  Future<void> _sendGroupMessage() async {
+    final repository = widget.repository;
+    if (repository == null) {
+      return;
+    }
+
+    final text = _composerController.text.trim();
+    if (text.isEmpty) {
+      return;
+    }
+    if (!_isCurrentUserMember) {
+      _setStatus('You are no longer a member of this group.');
+      return;
+    }
+
+    final recipients = _members
+        .where((member) => member.userId != widget.user.uid)
+        .map((member) => member.userId)
+        .toSet()
+        .toList(growable: false);
+
+    if (recipients.isEmpty) {
+      _setStatus('Add at least one other member before sending messages.');
+      return;
+    }
+
+    setState(() {
+      _busy = true;
+    });
+
+    final groupMessageId = FirebaseFirestore.instance
+        .collection('_group_message_ids')
+        .doc()
+        .id;
+    final payload = _encodeGroupEnvelope(
+      groupId: widget.group.id,
+      groupMessageId: groupMessageId,
+      body: text,
+    );
+
+    final failures = <String>[];
+    for (final recipientUserId in recipients) {
+      try {
+        await repository.sendTextMessage(
+          peerUserId: recipientUserId,
+          plaintext: payload,
+        );
+      } catch (_) {
+        failures.add(recipientUserId);
+      }
+    }
+
+    _composerController.clear();
+    await _reloadMessages();
+
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _busy = false;
+    });
+
+    if (failures.isEmpty) {
+      _setStatus('Sent secure group message to ${recipients.length} member(s).');
+    } else {
+      _setStatus(
+        'Sent with partial failures. Could not deliver to: ${failures.join(', ')}',
+      );
+    }
+  }
+
+  Future<void> _showAddMembersDialog() async {
+    if (!_isCurrentUserMember) {
+      return;
+    }
+
+    final currentMemberIds = _members
+        .map((member) => member.userId)
+        .toSet();
+    final selectedUserIds = <String>{};
+    var saving = false;
+    var completed = false;
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('Add Members'),
+              content: SizedBox(
+                width: 420,
+                height: math.min(
+                  420.0,
+                  MediaQuery.of(context).size.height * 0.7,
+                ),
+                child: StreamBuilder<List<AppUserProfile>>(
+                  stream: widget.appGroupsService.streamAvailableUsers(),
+                  builder: (context, snapshot) {
+                    if (snapshot.hasError) {
+                      return Text('Failed to load users: ${snapshot.error}');
+                    }
+
+                    final candidates = (snapshot.data ?? const <AppUserProfile>[])
+                        .where((user) => !currentMemberIds.contains(user.userId))
+                        .toList(growable: false);
+
+                    if (candidates.isEmpty) {
+                      return const Text('There are no additional app users to add.');
+                    }
+
+                    return ListView.builder(
+                      itemCount: candidates.length,
+                      itemBuilder: (context, index) {
+                        final candidate = candidates[index];
+                        final selected = selectedUserIds.contains(
+                          candidate.userId,
+                        );
+
+                        return CheckboxListTile(
+                          dense: true,
+                          value: selected,
+                          title: Text(
+                            candidate.label,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          onChanged: saving
+                              ? null
+                              : (value) {
+                                  setDialogState(() {
+                                    if (value ?? false) {
+                                      selectedUserIds.add(candidate.userId);
+                                    } else {
+                                      selectedUserIds.remove(candidate.userId);
+                                    }
+                                  });
+                                },
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+              actions: <Widget>[
+                TextButton(
+                  onPressed: saving
+                      ? null
+                      : () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Close'),
+                ),
+                FilledButton(
+                  onPressed: saving || selectedUserIds.isEmpty
+                      ? null
+                      : () async {
+                          setDialogState(() {
+                            saving = true;
+                          });
+
+                          try {
+                            for (final userId in selectedUserIds) {
+                              await widget.appGroupsService.addMember(
+                                groupId: widget.group.id,
+                                addedBy: widget.user.uid,
+                                memberUserId: userId,
+                              );
+                            }
+
+                            if (dialogContext.mounted) {
+                              completed = true;
+                              Navigator.of(dialogContext).pop();
+                            }
+                            _setStatus(
+                              'Added ${selectedUserIds.length} member(s) to the group.',
+                            );
+                          } catch (error) {
+                            if (dialogContext.mounted) {
+                              ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                SnackBar(
+                                  content: Text('Failed to add members: $error'),
+                                ),
+                              );
+                            }
+                          } finally {
+                            if (!completed && dialogContext.mounted) {
+                              setDialogState(() {
+                                saving = false;
+                              });
+                            }
+                          }
+                        },
+                  child: const Text('Add Selected'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _showMembersSheet() async {
+    final canRemoveMembers = _isCurrentUserOwner;
+    final canAddMembers = _isCurrentUserMember;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) {
+        return SafeArea(
+          child: SizedBox(
+            height: math.min(
+              520.0,
+              MediaQuery.of(sheetContext).size.height * 0.78,
+            ),
+            child: Column(
+              children: <Widget>[
+                ListTile(
+                  title: Text('Members (${_members.length})'),
+                  trailing: canAddMembers
+                      ? IconButton(
+                          tooltip: 'Add members',
+                          onPressed: () {
+                            Navigator.of(sheetContext).pop();
+                            _showAddMembersDialog();
+                          },
+                          icon: const Icon(Icons.person_add_alt_1_rounded),
+                        )
+                      : null,
+                ),
+                const Divider(height: 1),
+                Expanded(
+                  child: _members.isEmpty
+                      ? const Center(child: Text('No members found.'))
+                      : ListView.builder(
+                          itemCount: _members.length,
+                          itemBuilder: (context, index) {
+                            final member = _members[index];
+                            return ListTile(
+                              leading: Icon(
+                                member.isOwner
+                                    ? Icons.shield_rounded
+                                    : Icons.person_outline_rounded,
+                              ),
+                              title: Text(
+                                _labelForUser(member.userId),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              subtitle: Text(member.roleLabel),
+                              trailing: canRemoveMembers && !member.isOwner
+                                  ? IconButton(
+                                      tooltip: 'Remove member',
+                                      onPressed: () =>
+                                          _removeMember(member.userId),
+                                      icon: const Icon(
+                                        Icons.person_remove_rounded,
+                                      ),
+                                    )
+                                  : null,
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _removeMember(String memberUserId) async {
+    if (!_isCurrentUserOwner) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Remove Member'),
+          content: Text('Remove $memberUserId from this group?'),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Remove'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) {
+      return;
+    }
+
+    try {
+      await widget.appGroupsService.removeMember(
+        groupId: widget.group.id,
+        removedBy: widget.user.uid,
+        memberUserId: memberUserId,
+      );
+      _setStatus('Removed $memberUserId from the group.');
+    } catch (error) {
+      _setStatus('Failed to remove member: $error');
+    }
+  }
+
+  void _setStatus(String status) {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _inlineStatus = status;
+    });
+    widget.onStatusChange(status);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final canAddMembers = _isCurrentUserMember;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.group.name),
+        actions: <Widget>[
+          if (canAddMembers)
+            IconButton(
+              tooltip: 'Add members',
+              onPressed: _showAddMembersDialog,
+              icon: const Icon(Icons.person_add_alt_1_rounded),
+            ),
+          IconButton(
+            tooltip: 'View members',
+            onPressed: _showMembersSheet,
+            icon: const Icon(Icons.groups_rounded),
+          ),
+          IconButton(
+            tooltip: 'Refresh group messages',
+            onPressed: _reloadMessages,
+            icon: const Icon(Icons.sync_rounded),
+          ),
+        ],
+      ),
+      body: Container(
+        color: widget.dark ? _bgDark : _bgLight,
+        child: SafeArea(
+          child: Column(
+            children: <Widget>[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+                child: _StatusCard(
+                  status: _inlineStatus ??
+                      (_isCurrentUserOwner
+                          ? 'Owner • ${_members.length} members'
+                          : _isCurrentUserMember
+                          ? 'Participant • ${_members.length} members'
+                          : 'You are not in this group'),
+                  busy: _busy,
+                  dark: widget.dark,
+                  warning: null,
+                ),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+                  child: _GroupMessagesPanel(
+                    dark: widget.dark,
+                    messages: _messages,
+                    activeUserId: widget.user.uid,
+                    resolveSenderLabel: _labelForUser,
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+                child: _GroupComposerBar(
+                  controller: _composerController,
+                  dark: widget.dark,
+                  enabled: !_busy && _isCurrentUserMember,
+                  onSend: _sendGroupMessage,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GroupMessageView {
+  const _GroupMessageView({
+    required this.groupMessageId,
+    required this.senderUserId,
+    required this.body,
+    required this.createdAt,
+    required this.deliveryState,
+    required this.outgoing,
+  });
+
+  final String groupMessageId;
+  final String senderUserId;
+  final String body;
+  final DateTime createdAt;
+  final String deliveryState;
+  final bool outgoing;
+}
+
+class _GroupMessagesPanel extends StatelessWidget {
+  const _GroupMessagesPanel({
+    required this.dark,
+    required this.messages,
+    required this.activeUserId,
+    required this.resolveSenderLabel,
+  });
+
+  final bool dark;
+  final List<_GroupMessageView> messages;
+  final String activeUserId;
+  final String Function(String userId) resolveSenderLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: dark ? _surfaceDark : _surfaceLight,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: dark ? _borderDark : _borderLight),
+      ),
+      child: messages.isEmpty
+          ? Center(
+              child: Text(
+                'No messages yet. Send one to start this group chat.',
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: dark ? _textSecondaryDark : _textSecondaryLight,
+                ),
+              ),
+            )
+          : ListView.separated(
+              itemCount: messages.length,
+              separatorBuilder: (context, index) => const SizedBox(height: 10),
+              itemBuilder: (context, index) {
+                final message = messages[index];
+                final outgoing = message.senderUserId == activeUserId;
+
+                return Align(
+                  alignment: outgoing
+                      ? Alignment.centerRight
+                      : Alignment.centerLeft,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 340),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: outgoing
+                            ? _balticBlue
+                            : dark
+                            ? const Color(0xFF334155)
+                            : const Color(0xFFEFF4FA),
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
+                        child: Column(
+                          crossAxisAlignment: outgoing
+                              ? CrossAxisAlignment.end
+                              : CrossAxisAlignment.start,
+                          children: <Widget>[
+                            Text(
+                              outgoing
+                                  ? 'You'
+                                  : resolveSenderLabel(message.senderUserId),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.labelMedium
+                                  ?.copyWith(
+                                    color: outgoing
+                                        ? _skyReflection
+                                        : dark
+                                        ? _textSecondaryDark
+                                        : _textSecondaryLight,
+                                  ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              message.body,
+                              style: Theme.of(context).textTheme.bodyLarge
+                                  ?.copyWith(
+                                    color: outgoing
+                                        ? Colors.white
+                                        : dark
+                                        ? _textPrimaryDark
+                                        : _textPrimaryLight,
+                                    height: 1.35,
+                                  ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              '${message.createdAt.hour.toString().padLeft(2, '0')}:${message.createdAt.minute.toString().padLeft(2, '0')}  ${message.deliveryState}',
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(
+                                    color: outgoing
+                                        ? const Color(0xFFD6E8F7)
+                                        : dark
+                                        ? _textSecondaryDark
+                                        : _textSecondaryLight,
+                                  ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+    );
+  }
+}
+
+class _GroupComposerBar extends StatelessWidget {
+  const _GroupComposerBar({
+    required this.controller,
+    required this.dark,
+    required this.enabled,
+    required this.onSend,
+  });
+
+  final TextEditingController controller;
+  final bool dark;
+  final bool enabled;
+  final VoidCallback onSend;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: dark ? _surfaceDark : _surfaceLight,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: dark ? _borderDark : _borderLight),
+      ),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: TextField(
+              controller: controller,
+              enabled: enabled,
+              minLines: 1,
+              maxLines: 4,
+              decoration: const InputDecoration(
+                hintText: 'Type a message',
+                border: InputBorder.none,
+              ),
+              onSubmitted: (_) => onSend(),
+            ),
+          ),
+          FilledButton.icon(
+            onPressed: enabled ? onSend : null,
+            icon: const Icon(Icons.send_rounded),
+            label: const Text('Send'),
           ),
         ],
       ),

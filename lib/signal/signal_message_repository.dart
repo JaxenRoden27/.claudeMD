@@ -53,10 +53,11 @@ class SignalMessageRepository {
     _realtimeSubscription?.cancel();
   }
 
-  Future<void> registerCurrentDevice() {
+  Future<void> registerCurrentDevice({String? profileLabel}) {
     return _signalService.registerUserOnInstall(
       userId: localUserId,
       deviceId: localDeviceId,
+      profileLabel: profileLabel,
     );
   }
 

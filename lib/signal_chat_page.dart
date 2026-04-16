@@ -10,7 +10,6 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import 'services/app_feature_services.dart';
 import 'auth/auth_service.dart';
-import 'firebase_options.dart';
 import 'signal/signal_fcm_coordinator.dart';
 import 'signal/signal_message_repository.dart';
 import 'signal/signal_models.dart';
@@ -126,6 +125,24 @@ class _SignalChatPageState extends State<SignalChatPage> {
     await _localOptionsService.save(options);
   }
 
+  String _preferredProfileLabel() {
+    final displayName = widget.user.displayName?.trim();
+    if (displayName != null && displayName.isNotEmpty) {
+      return displayName;
+    }
+
+    final email = widget.user.email?.trim();
+    if (email != null && email.isNotEmpty) {
+      final atIndex = email.indexOf('@');
+      if (atIndex > 0) {
+        return email.substring(0, atIndex);
+      }
+      return email;
+    }
+
+    return 'User';
+  }
+
   Future<void> _initializeSignal() async {
     if (!widget.bootstrapState.firebaseReady) return;
 
@@ -142,7 +159,9 @@ class _SignalChatPageState extends State<SignalChatPage> {
       );
 
       // Register device if not already registered (local-only check inside registerCurrentDevice usually)
-      await repository.registerCurrentDevice();
+      await repository.registerCurrentDevice(
+        profileLabel: _preferredProfileLabel(),
+      );
 
       setState(() {
         _repository = repository;
@@ -1438,7 +1457,7 @@ class _GroupsTab extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           StreamBuilder<List<AppGroup>>(
-            stream: appGroupsService.streamGroups(),
+            stream: appGroupsService.streamGroups(currentUserId: user.uid),
             builder: (context, snapshot) {
               if (snapshot.hasError) {
                 return Card(

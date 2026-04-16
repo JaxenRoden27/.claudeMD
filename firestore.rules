@@ -56,11 +56,17 @@ service cloud.firestore {
     function validPublicBundleDoc(userId) {
       return hasOnlyKeys([
         'userId',
+        'label',
         'createdAt',
         'updatedAt',
         'deviceListVersion',
         'identityAuditVersion',
-      ]) && request.resource.data.userId == userId;
+      ]) &&
+      request.resource.data.userId == userId &&
+      (
+        !request.resource.data.keys().hasAny(['label']) ||
+        request.resource.data.label is string
+      );
     }
 
     function validDeviceRoutingDoc(userId, deviceId) {
@@ -274,6 +280,83 @@ service cloud.firestore {
       request.resource.data.joinedEpoch is int;
     }
 
+    function appGroupPath(groupId) {
+      return /databases/$(database)/documents/app_groups/$(groupId);
+    }
+
+    function appGroupExists(groupId) {
+      return exists(appGroupPath(groupId));
+    }
+
+    function appGroupData(groupId) {
+      return get(appGroupPath(groupId)).data;
+    }
+
+    function isAppGroupMember(groupId) {
+      return signedIn() &&
+        appGroupExists(groupId) &&
+        uid() in appGroupData(groupId).memberUserIds;
+    }
+
+    function isAppGroupOwner(groupId) {
+      return isAppGroupMember(groupId) &&
+        appGroupData(groupId).ownerUserId == uid();
+    }
+
+    function validAppGroupCreate(groupId) {
+      return hasOnlyKeys([
+        'groupId',
+        'name',
+        'createdBy',
+        'ownerUserId',
+        'createdAt',
+        'updatedAt',
+        'memberUserIds',
+        'memberCount',
+      ]) &&
+      request.resource.data.groupId == groupId &&
+      request.resource.data.name is string &&
+      request.resource.data.name.size() > 0 &&
+      request.resource.data.createdBy == uid() &&
+      request.resource.data.ownerUserId == uid() &&
+      request.resource.data.memberUserIds is list &&
+      uid() in request.resource.data.memberUserIds &&
+      request.resource.data.memberUserIds.size() >= 1 &&
+      request.resource.data.ownerUserId in request.resource.data.memberUserIds &&
+      request.resource.data.memberCount == request.resource.data.memberUserIds.size();
+    }
+
+    function validAppGroupUpdate(groupId) {
+      return request.resource.data.keys().hasOnly([
+        'groupId',
+        'name',
+        'createdBy',
+        'ownerUserId',
+        'createdAt',
+        'updatedAt',
+        'memberUserIds',
+        'memberCount',
+      ]) &&
+      request.resource.data.groupId == resource.data.groupId &&
+      request.resource.data.createdBy == resource.data.createdBy &&
+      request.resource.data.ownerUserId == resource.data.ownerUserId &&
+      request.resource.data.createdAt == resource.data.createdAt &&
+      request.resource.data.name is string &&
+      request.resource.data.name.size() > 0 &&
+      request.resource.data.memberUserIds is list &&
+      request.resource.data.ownerUserId in request.resource.data.memberUserIds &&
+      uid() in request.resource.data.memberUserIds &&
+      request.resource.data.memberCount == request.resource.data.memberUserIds.size() &&
+      (
+        isAppGroupOwner(groupId) ||
+        (
+          request.resource.data.name == resource.data.name &&
+          request.resource.data.memberUserIds.hasAll(resource.data.memberUserIds) &&
+          request.resource.data.memberUserIds.size() >= resource.data.memberUserIds.size()
+        )
+      );
+    }
+
     match /users_private/{userId} {
       allow read: if isSelf(userId);
       allow create, update: if isSelf(userId) && validPrivateUserDoc(userId);
@@ -356,8 +439,10 @@ service cloud.firestore {
     }
 
     match /app_groups/{groupId} {
-      allow read: if signedIn();
-      allow create, update, delete: if signedIn();
+      allow read: if isAppGroupMember(groupId);
+      allow create: if signedIn() && validAppGroupCreate(groupId);
+      allow update: if isAppGroupMember(groupId) && validAppGroupUpdate(groupId);
+      allow delete: if isAppGroupOwner(groupId);
     }
   }
 }
