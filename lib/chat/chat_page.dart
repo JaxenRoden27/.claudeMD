@@ -1103,35 +1103,18 @@ class _ConversationsTab extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
             sliver: SliverList(
               delegate: SliverChildListDelegate([
-<<<<<<< HEAD
                 _StatusCard(status: status, busy: busy, dark: dark, warning: warning),
                 const SizedBox(height: 12),
                 Text(
                   'Conversations',
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
                 ),
-=======
-                _StatusCard(
-                  status: status,
-                  busy: busy,
-                  dark: dark,
-                  warning: warning,
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  'Conversations',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-                ),
->>>>>>> 8196100b58aa58907e2ce68ea4f3f19bd8910d18
                 const SizedBox(height: 10),
                 if (peers.isEmpty)
                   const Card(
                     child: ListTile(
                       leading: Icon(Icons.inbox),
                       title: Text('No active conversations.'),
-<<<<<<< HEAD
                       subtitle: Text('Scan a QR code to securely message a peer.'),
                     ),
                   ),
@@ -1175,52 +1158,6 @@ class _ConversationsTab extends StatelessWidget {
               ),
             ),
           ),
-=======
-                      subtitle: Text(
-                        'Scan a QR code to securely message a peer.',
-                      ),
-                    ),
-                  ),
-              ]),
-            ),
-          ),
-          SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            sliver: SliverList(
-              delegate: SliverChildBuilderDelegate((context, index) {
-                final peer = peers[index];
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                  child: ListTile(
-                    onTap: onOpenConversation != null
-                        ? () => onOpenConversation!(peer)
-                        : null,
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 10,
-                    ),
-                    leading: CircleAvatar(
-                      backgroundColor: _honeyBronze.withValues(alpha: 0.18),
-                      child: const Icon(Icons.person, color: _honeyBronze),
-                    ),
-                    title: Text(
-                      peer.label ?? 'Unknown Peer',
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    subtitle: Text(
-                      'Device: ${peer.deviceId}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                );
-              }, childCount: peers.length),
-            ),
-          ),
->>>>>>> 8196100b58aa58907e2ce68ea4f3f19bd8910d18
         ],
       ),
     );
