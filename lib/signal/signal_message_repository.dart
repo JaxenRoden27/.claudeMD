@@ -43,12 +43,14 @@ class SignalMessageRepository {
 
   final String localUserId;
   final String localDeviceId;
+  StreamSubscription<dynamic>? _realtimeSubscription;
 
   final _inboxUpdatesController = StreamController<void>.broadcast();
   Stream<void> get inboxUpdates => _inboxUpdatesController.stream;
 
   void dispose() {
     _inboxUpdatesController.close();
+    _realtimeSubscription?.cancel();
   }
 
   Future<void> registerCurrentDevice() {
@@ -56,6 +58,23 @@ class SignalMessageRepository {
       userId: localUserId,
       deviceId: localDeviceId,
     );
+  }
+
+  void setupRealtimeListener() {
+    _realtimeSubscription?.cancel();
+    // Use the same collectionGroup query as syncPendingMessages but with snaps
+    final query = _firestore
+        .collectionGroup('device_messages')
+        .where('recipientUserId', isEqualTo: localUserId)
+        .where('recipientDeviceId', isEqualTo: localDeviceId)
+        .where('deliveryState', isEqualTo: 'queued');
+
+    _realtimeSubscription = query.snapshots().listen((snap) {
+      if (snap.docs.isNotEmpty) {
+        // Use syncPendingMessages to pull and decrypt the new documents
+        syncPendingMessages();
+      }
+    });
   }
 
   Future<void> updateRoutingToken({
@@ -194,6 +213,8 @@ class SignalMessageRepository {
           ),
         ),
       );
+
+      _inboxUpdatesController.add(null);
     } on StateError {
       rethrow;
     } on FirebaseException catch (error) {
