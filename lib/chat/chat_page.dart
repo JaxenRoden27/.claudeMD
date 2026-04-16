@@ -16,6 +16,7 @@ import '../signal/signal_fcm_coordinator.dart';
 import '../signal/signal_message_repository.dart';
 import '../signal/signal_models.dart';
 import '../signal/signal_service.dart';
+import '../dev/developer_blackjack_page.dart';
 
 // Colors and Constants moved from main.dart
 const _balticBlue = Color(0xFF33658A);
@@ -37,11 +38,7 @@ const _imageMessagePrefix = '[image] ';
 // AppBootstrapState moved to models/app_bootstrap_state.dart
 
 class ChatPage extends StatefulWidget {
-  const ChatPage({
-    super.key,
-    required this.bootstrapState,
-    required this.user,
-  });
+  const ChatPage({super.key, required this.bootstrapState, required this.user});
 
   final AppBootstrapState bootstrapState;
   final User user;
@@ -185,12 +182,14 @@ class _ChatPageState extends State<ChatPage> {
 
     final peerUserId = _peerUserId;
     final allPeers = await repository.loadAllKnownPeers();
-    
+
     List<LocalChatMessage> messages = const [];
     List<LocalTrustRecord> trustRecords = const [];
 
     if (peerUserId != null) {
-      messages = await repository.loadConversationMessages(peerUserId: peerUserId);
+      messages = await repository.loadConversationMessages(
+        peerUserId: peerUserId,
+      );
       trustRecords = await repository.loadTrustState(peerUserId: peerUserId);
     }
 
@@ -407,7 +406,7 @@ class _ChatPageState extends State<ChatPage> {
       _peerUserId = parsed.userId;
       _status = 'Linked with ${parsed.label}.';
     });
-    
+
     await _reloadLocalState();
   }
 
@@ -589,7 +588,8 @@ class _ChatPageState extends State<ChatPage> {
         actions: <Widget>[
           IconButton(
             tooltip: 'Sync inbox',
-            onPressed: widget.bootstrapState.firebaseReady &&
+            onPressed:
+                widget.bootstrapState.firebaseReady &&
                     !_busy &&
                     _peerUserId != null
                 ? _syncInbox
@@ -617,25 +617,27 @@ class _ChatPageState extends State<ChatPage> {
               setState(() {
                 _peerUserId = peer.userId;
               });
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (context) => _ChatDetailPage(
-                    dark: dark,
-                    user: widget.user,
-                    peerUserId: peer.userId,
-                    peerLabel: peer.label ?? peer.userId,
-                    repository: _repository!,
-                    composerController: _composerController,
-                    busy: _busy,
-                    firebaseReady: widget.bootstrapState.firebaseReady,
-                    status: _status,
-                    warning: widget.bootstrapState.warning,
-                    onSend: _sendMessage,
-                    onSendImage: _sendImageMessage,
-                    onSync: _syncInbox,
-                  ),
-                ),
-              ).then((_) => _reloadLocalState());
+              Navigator.of(context)
+                  .push(
+                    MaterialPageRoute<void>(
+                      builder: (context) => _ChatDetailPage(
+                        dark: dark,
+                        user: widget.user,
+                        peerUserId: peer.userId,
+                        peerLabel: peer.label ?? peer.userId,
+                        repository: _repository!,
+                        composerController: _composerController,
+                        busy: _busy,
+                        firebaseReady: widget.bootstrapState.firebaseReady,
+                        status: _status,
+                        warning: widget.bootstrapState.warning,
+                        onSend: _sendMessage,
+                        onSendImage: _sendImageMessage,
+                        onSync: _syncInbox,
+                      ),
+                    ),
+                  )
+                  .then((_) => _reloadLocalState());
             },
             onSync: widget.bootstrapState.firebaseReady && !_busy
                 ? _syncInbox
@@ -683,6 +685,13 @@ class _ChatPageState extends State<ChatPage> {
             onSetPreferredCamera: (camera) {
               _updateLocalOptions(
                 _localOptions.copyWith(preferredCamera: camera),
+              );
+            },
+            onOpenDeveloperTable: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (context) => const DeveloperBlackjackPage(),
+                ),
               );
             },
           ),
@@ -954,7 +963,7 @@ class _MessagesPanel extends StatelessWidget {
                                   width: 220,
                                   height: 170,
                                   fit: BoxFit.cover,
-                                )
+                                ),
                               )
                             else
                               Text(
@@ -1098,11 +1107,18 @@ class _ConversationsTab extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
             sliver: SliverList(
               delegate: SliverChildListDelegate([
-                _StatusCard(status: status, busy: busy, dark: dark, warning: warning),
+                _StatusCard(
+                  status: status,
+                  busy: busy,
+                  dark: dark,
+                  warning: warning,
+                ),
                 const SizedBox(height: 12),
                 Text(
                   'Conversations',
-                  style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 10),
                 if (peers.isEmpty)
@@ -1110,7 +1126,9 @@ class _ConversationsTab extends StatelessWidget {
                     child: ListTile(
                       leading: Icon(Icons.inbox),
                       title: Text('No active conversations.'),
-                      subtitle: Text('Scan a QR code to securely message a peer.'),
+                      subtitle: Text(
+                        'Scan a QR code to securely message a peer.',
+                      ),
                     ),
                   ),
               ]),
@@ -1119,38 +1137,37 @@ class _ConversationsTab extends StatelessWidget {
           SliverPadding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             sliver: SliverList(
-              delegate: SliverChildBuilderDelegate(
-                (context, index) {
-                  final peer = peers[index];
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(18),
+              delegate: SliverChildBuilderDelegate((context, index) {
+                final peer = peers[index];
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: ListTile(
+                    onTap: onOpenConversation != null
+                        ? () => onOpenConversation!(peer)
+                        : null,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
                     ),
-                    child: ListTile(
-                      onTap: onOpenConversation != null ? () => onOpenConversation!(peer) : null,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 10,
-                      ),
-                      leading: CircleAvatar(
-                        backgroundColor: _honeyBronze.withValues(alpha: 0.18),
-                        child: const Icon(Icons.person, color: _honeyBronze),
-                      ),
-                      title: Text(
-                        peer.label ?? 'Unknown Peer',
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      subtitle: Text(
-                        'Device: ${peer.deviceId}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                    leading: CircleAvatar(
+                      backgroundColor: _honeyBronze.withValues(alpha: 0.18),
+                      child: const Icon(Icons.person, color: _honeyBronze),
                     ),
-                  );
-                },
-                childCount: peers.length,
-              ),
+                    title: Text(
+                      peer.label ?? 'Unknown Peer',
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    subtitle: Text(
+                      'Device: ${peer.deviceId}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                );
+              }, childCount: peers.length),
             ),
           ),
         ],
@@ -1522,6 +1539,7 @@ class _SettingsTab extends StatelessWidget {
     required this.onToggleAutoSync,
     required this.onToggleMultiDeviceHints,
     required this.onSetPreferredCamera,
+    required this.onOpenDeveloperTable,
   });
 
   final bool dark;
@@ -1537,6 +1555,7 @@ class _SettingsTab extends StatelessWidget {
   final ValueChanged<bool> onToggleAutoSync;
   final ValueChanged<bool> onToggleMultiDeviceHints;
   final ValueChanged<String> onSetPreferredCamera;
+  final VoidCallback onOpenDeveloperTable;
 
   @override
   Widget build(BuildContext context) {
@@ -1545,11 +1564,30 @@ class _SettingsTab extends StatelessWidget {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
         children: <Widget>[
-          Text(
-            'Settings',
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+          SizedBox(
+            width: double.infinity,
+            height: 30,
+            child: Stack(
+              children: <Widget>[
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Settings',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+                Align(
+                  alignment: Alignment.topRight,
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onTap: onOpenDeveloperTable,
+                    child: const SizedBox(width: 26, height: 26),
+                  ),
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 10),
           _StatusCard(status: status, busy: busy, dark: dark, warning: warning),
@@ -1569,7 +1607,10 @@ class _SettingsTab extends StatelessWidget {
                     style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(height: 4),
-                  Text('UID: ${user.uid}', style: Theme.of(context).textTheme.bodySmall),
+                  Text(
+                    'UID: ${user.uid}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
                 ],
               ),
             ),
