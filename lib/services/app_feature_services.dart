@@ -118,8 +118,8 @@ class AccountQrPayload {
   }
 }
 
-class ForumPost {
-  const ForumPost({
+class ForumReply {
+  const ForumReply({
     required this.id,
     required this.authorUserId,
     required this.authorLabel,
@@ -133,15 +133,62 @@ class ForumPost {
   final String body;
   final DateTime createdAt;
 
+  factory ForumReply.fromJson(Map<String, dynamic> json) {
+    final ts = json['createdAt'];
+    return ForumReply(
+      id: json['id'] as String? ?? '',
+      authorUserId: json['authorUserId'] as String? ?? 'unknown',
+      authorLabel: json['authorLabel'] as String? ?? 'Unknown',
+      body: json['body'] as String? ?? '',
+      createdAt: ts is Timestamp ? ts.toDate() : (ts is int ? DateTime.fromMillisecondsSinceEpoch(ts) : DateTime.now()),
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return <String, dynamic>{
+      'id': id,
+      'authorUserId': authorUserId,
+      'authorLabel': authorLabel,
+      'body': body,
+      'createdAt': Timestamp.fromDate(createdAt),
+    };
+  }
+}
+
+class ForumPost {
+  const ForumPost({
+    required this.id,
+    required this.authorUserId,
+    required this.authorLabel,
+    required this.body,
+    required this.createdAt,
+    this.replies = const <ForumReply>[],
+  });
+
+  final String id;
+  final String authorUserId;
+  final String authorLabel;
+  final String body;
+  final DateTime createdAt;
+  final List<ForumReply> replies;
+
   factory ForumPost.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data() ?? const <String, dynamic>{};
     final ts = data['createdAt'];
+
+    final repliesData = data['replies'] as List<dynamic>? ?? <dynamic>[];
+    final repliesList = repliesData
+        .whereType<Map<String, dynamic>>()
+        .map((e) => ForumReply.fromJson(e))
+        .toList(growable: false);
+
     return ForumPost(
       id: doc.id,
       authorUserId: data['authorUserId'] as String? ?? 'unknown',
       authorLabel: data['authorLabel'] as String? ?? 'Unknown',
       body: data['body'] as String? ?? '',
       createdAt: ts is Timestamp ? ts.toDate() : DateTime.now(),
+      replies: repliesList,
     );
   }
 }
@@ -180,6 +227,31 @@ class ForumsService {
       'authorLabel': authorLabel,
       'body': trimmed,
       'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> addReply({
+    required String postId,
+    required String authorUserId,
+    required String authorLabel,
+    required String body,
+  }) async {
+    final trimmed = body.trim();
+    if (trimmed.isEmpty) {
+      throw StateError('Reply cannot be empty.');
+    }
+
+    final String generatedId = '${DateTime.now().millisecondsSinceEpoch}_$authorUserId';
+    final reply = ForumReply(
+      id: generatedId,
+      authorUserId: authorUserId,
+      authorLabel: authorLabel,
+      body: trimmed,
+      createdAt: DateTime.now(),
+    );
+
+    await _firestore.collection('forums_posts').doc(postId).update(<String, dynamic>{
+      'replies': FieldValue.arrayUnion(<dynamic>[reply.toJson()]),
     });
   }
 }

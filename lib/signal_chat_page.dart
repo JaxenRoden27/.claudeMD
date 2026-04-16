@@ -635,7 +635,7 @@ class _SignalChatPageState extends State<SignalChatPage> {
                 ? _syncInbox
                 : null,
           ),
-          _ContactsTab(
+          _ForumsTab(
             dark: dark,
             user: widget.user,
             forumsService: _forumsService,
@@ -696,9 +696,9 @@ class _SignalChatPageState extends State<SignalChatPage> {
             label: 'Chats',
           ),
           NavigationDestination(
-            icon: Icon(Icons.people_alt_outlined),
-            selectedIcon: Icon(Icons.people_alt_rounded),
-            label: 'Contacts',
+            icon: Icon(Icons.question_answer_outlined),
+            selectedIcon: Icon(Icons.question_answer_rounded),
+            label: 'Forums',
           ),
           NavigationDestination(
             icon: Icon(Icons.groups_outlined),
@@ -1269,8 +1269,8 @@ class _ChatDetailPage extends StatelessWidget {
   }
 }
 
-class _ContactsTab extends StatelessWidget {
-  const _ContactsTab({
+class _ForumsTab extends StatelessWidget {
+  const _ForumsTab({
     required this.dark,
     required this.user,
     required this.forumsService,
@@ -1354,25 +1354,153 @@ class _ContactsTab extends StatelessWidget {
               return Column(
                 children: posts
                     .take(15)
-                    .map(
-                      (post) => Card(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        child: ListTile(
-                          leading: const Icon(Icons.message_outlined),
-                          title: Text(post.authorLabel),
-                          subtitle: Text(post.body),
-                          trailing: Text(
-                            '${post.createdAt.hour.toString().padLeft(2, '0')}:${post.createdAt.minute.toString().padLeft(2, '0')}',
-                            style: Theme.of(context).textTheme.labelSmall,
-                          ),
-                        ),
-                      ),
-                    )
+                    .map((post) => _ForumPostCard(post: post, user: user, forumsService: forumsService))
                     .toList(growable: false),
               );
             },
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ForumPostCard extends StatefulWidget {
+  const _ForumPostCard({
+    required this.post,
+    required this.user,
+    required this.forumsService,
+  });
+
+  final ForumPost post;
+  final User user;
+  final ForumsService forumsService;
+
+  @override
+  State<_ForumPostCard> createState() => _ForumPostCardState();
+}
+
+class _ForumPostCardState extends State<_ForumPostCard> {
+  final TextEditingController _replyController = TextEditingController();
+  bool _isSubmitting = false;
+
+  Future<void> _submitReply() async {
+    final text = _replyController.text.trim();
+    if (text.isEmpty) return;
+
+    setState(() => _isSubmitting = true);
+    try {
+      await widget.forumsService.addReply(
+        postId: widget.post.id,
+        authorUserId: widget.user.uid,
+        authorLabel: widget.user.displayName ?? widget.user.email ?? 'User',
+        body: text,
+      );
+      _replyController.clear();
+    } catch (_) {
+      // Ignore for MVP
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _replyController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            // Parent Post
+            Row(
+              children: [
+                const Icon(Icons.message_outlined, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    widget.post.authorLabel,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                Text(
+                  '${widget.post.createdAt.hour.toString().padLeft(2, '0')}:${widget.post.createdAt.minute.toString().padLeft(2, '0')}',
+                  style: Theme.of(context).textTheme.labelSmall,
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(widget.post.body),
+            const Divider(height: 24),
+            // Replies list
+            if (widget.post.replies.isNotEmpty) ...[
+              for (final reply in widget.post.replies)
+                Padding(
+                  padding: const EdgeInsets.only(left: 16, bottom: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.reply_rounded, size: 14, color: Colors.grey),
+                          const SizedBox(width: 4),
+                          Text(
+                            reply.authorLabel,
+                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                          ),
+                          const Spacer(),
+                          Text(
+                            '${reply.createdAt.hour.toString().padLeft(2, '0')}:${reply.createdAt.minute.toString().padLeft(2, '0')}',
+                            style: Theme.of(context).textTheme.labelSmall?.copyWith(fontSize: 10),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(reply.body, style: const TextStyle(fontSize: 13)),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: 4),
+            ],
+            // Reply composer
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _replyController,
+                    enabled: !_isSubmitting,
+                    decoration: const InputDecoration(
+                      hintText: 'Add a reply...',
+                      isDense: true,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.all(Radius.circular(20)),
+                      ),
+                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    ),
+                    style: const TextStyle(fontSize: 13),
+                    onSubmitted: (_) => _submitReply(),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                IconButton(
+                  icon: const Icon(Icons.send_rounded, size: 18),
+                  constraints: const BoxConstraints(),
+                  padding: const EdgeInsets.all(8),
+                  onPressed: _isSubmitting ? null : _submitReply,
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
