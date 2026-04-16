@@ -151,6 +151,7 @@ class _ChatPageState extends State<ChatPage> {
         _status = 'Secure messaging ready.';
       });
 
+      repository.setupRealtimeListener();
       repository.inboxUpdates.listen((_) => _reloadLocalState());
 
       await _bindForegroundWakeHandler();
@@ -277,6 +278,7 @@ class _ChatPageState extends State<ChatPage> {
         plaintext: plaintext,
       );
       _composerController.clear();
+      FocusManager.instance.primaryFocus?.unfocus();
       await _reloadLocalState();
       if (!mounted) {
         return;
@@ -346,6 +348,7 @@ class _ChatPageState extends State<ChatPage> {
         peerUserId: peerUserId,
         plaintext: '[image] $imageUrl',
       );
+      FocusManager.instance.primaryFocus?.unfocus();
       await _reloadLocalState();
       if (!mounted) {
         return;
@@ -844,22 +847,17 @@ class _ConversationMetaCard extends StatelessWidget {
     required this.dark,
     required this.activeUser,
     required this.peerUserId,
+    required this.peerLabel,
     required this.trustRecords,
   });
 
   final bool dark;
   final User activeUser;
   final String peerUserId;
+  final String peerLabel;
   final List<LocalTrustRecord> trustRecords;
 
-  String _fingerprintPreview(String hash) {
-    final trimmed = hash.trim();
-    if (trimmed.isEmpty) {
-      return 'unknown';
-    }
-    final end = trimmed.length < 10 ? trimmed.length : 10;
-    return trimmed.substring(0, end);
-  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -875,28 +873,14 @@ class _ConversationMetaCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            'Secure chat with $peerUserId',
+            'Secure chat with $peerLabel',
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.w700,
               color: dark ? _textPrimaryDark : _textPrimaryLight,
             ),
           ),
-          const SizedBox(height: 8),
-          Text(
-            'Conversation ID: ${SignalMessageRepository.directConversationId(activeUser.uid, peerUserId)}',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: dark ? _textSecondaryDark : _textSecondaryLight,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            trustRecords.isEmpty
-                ? 'No trust snapshots yet.'
-                : 'Known peer device fingerprints: ${trustRecords.map((record) => '${record.deviceId}:${_fingerprintPreview(record.identityKeyHash)}').join('  ')}',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: dark ? _textSecondaryDark : _textSecondaryLight,
-            ),
-          ),
+
+
         ],
       ),
     );
@@ -909,12 +893,14 @@ class _MessagesPanel extends StatelessWidget {
     required this.messages,
     required this.activeUserId,
     required this.peerLabel,
+    this.controller,
   });
 
   final bool dark;
   final List<LocalChatMessage> messages;
   final String? activeUserId;
   final String peerLabel;
+  final ScrollController? controller;
 
   @override
   Widget build(BuildContext context) {
@@ -937,6 +923,7 @@ class _MessagesPanel extends StatelessWidget {
               ),
             )
           : ListView.separated(
+              controller: controller,
               itemCount: messages.length,
               separatorBuilder: (context, index) => const SizedBox(height: 10),
               itemBuilder: (context, index) {
@@ -1118,6 +1105,7 @@ class _ComposerBar extends StatelessWidget {
     required this.enabled,
     required this.onSend,
     required this.onSendImage,
+    this.focusNode,
   });
 
   final TextEditingController controller;
@@ -1125,6 +1113,7 @@ class _ComposerBar extends StatelessWidget {
   final bool enabled;
   final VoidCallback onSend;
   final VoidCallback onSendImage;
+  final FocusNode? focusNode;
 
   @override
   Widget build(BuildContext context) {
@@ -1145,6 +1134,7 @@ class _ComposerBar extends StatelessWidget {
           Expanded(
             child: TextField(
               controller: controller,
+              focusNode: focusNode,
               enabled: enabled,
               minLines: 1,
               maxLines: 4,
@@ -1304,6 +1294,8 @@ class _ChatDetailPage extends StatefulWidget {
 class _ChatDetailPageState extends State<_ChatDetailPage> {
   List<LocalChatMessage> _messages = const [];
   List<LocalTrustRecord> _trustRecords = const [];
+  final ScrollController _scrollController = ScrollController();
+  final FocusNode _focusNode = FocusNode();
   StreamSubscription<void>? _sub;
 
   @override
@@ -1313,12 +1305,31 @@ class _ChatDetailPageState extends State<_ChatDetailPage> {
     _sub = widget.repository.inboxUpdates.listen((_) {
       if (mounted) _loadData();
     });
+    _focusNode.addListener(() {
+      if (_focusNode.hasFocus) {
+        _scrollToBottom();
+      }
+    });
   }
 
   @override
   void dispose() {
     _sub?.cancel();
+    _scrollController.dispose();
+    _focusNode.dispose();
     super.dispose();
+  }
+
+  void _scrollToBottom() {
+    if (_scrollController.hasClients) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      });
+    }
   }
 
   Future<void> _loadData() async {
@@ -1333,6 +1344,7 @@ class _ChatDetailPageState extends State<_ChatDetailPage> {
         _messages = messages;
         _trustRecords = trustRecords;
       });
+      _scrollToBottom();
     }
   }
 
@@ -1369,6 +1381,7 @@ class _ChatDetailPageState extends State<_ChatDetailPage> {
                   dark: widget.dark,
                   activeUser: widget.user,
                   peerUserId: widget.peerUserId,
+                  peerLabel: widget.peerLabel,
                   trustRecords: _trustRecords,
                 ),
               ),
@@ -1380,6 +1393,7 @@ class _ChatDetailPageState extends State<_ChatDetailPage> {
                     messages: _messages,
                     activeUserId: widget.user.uid,
                     peerLabel: widget.peerLabel,
+                    controller: _scrollController,
                   ),
                 ),
               ),
@@ -1387,6 +1401,7 @@ class _ChatDetailPageState extends State<_ChatDetailPage> {
                 padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
                 child: _ComposerBar(
                   controller: widget.composerController,
+                  focusNode: _focusNode,
                   dark: widget.dark,
                   enabled: widget.firebaseReady && !widget.busy,
                   onSend: widget.onSend,
@@ -2718,9 +2733,7 @@ class _SettingsTab extends StatelessWidget {
                   ListTile(
                     leading: const Icon(Icons.devices_other_rounded),
                     title: Text(linkedAccount!.label),
-                    subtitle: Text(
-                      'User ${linkedAccount!.userId} / Device ${linkedAccount!.deviceId}',
-                    ),
+
                   ),
               ],
             ),
