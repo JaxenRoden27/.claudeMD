@@ -1269,7 +1269,7 @@ class _ChatDetailPage extends StatelessWidget {
   }
 }
 
-class _ForumsTab extends StatelessWidget {
+class _ForumsTab extends StatefulWidget {
   const _ForumsTab({
     required this.dark,
     required this.user,
@@ -1287,9 +1287,16 @@ class _ForumsTab extends StatelessWidget {
   final VoidCallback onCreatePost;
 
   @override
+  State<_ForumsTab> createState() => _ForumsTabState();
+}
+
+class _ForumsTabState extends State<_ForumsTab> {
+  String? _activeReplyPostId;
+
+  @override
   Widget build(BuildContext context) {
     return Container(
-      color: dark ? _bgDark : _bgLight,
+      color: widget.dark ? _bgDark : _bgLight,
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
         children: <Widget>[
@@ -1311,8 +1318,8 @@ class _ForumsTab extends StatelessWidget {
                 children: <Widget>[
                   Expanded(
                     child: TextField(
-                      controller: composerController,
-                      enabled: !busy,
+                      controller: widget.composerController,
+                      enabled: !widget.busy,
                       decoration: const InputDecoration(
                         hintText: 'Post to forum',
                         border: InputBorder.none,
@@ -1320,7 +1327,7 @@ class _ForumsTab extends StatelessWidget {
                     ),
                   ),
                   IconButton(
-                    onPressed: !busy ? onCreatePost : null,
+                    onPressed: !widget.busy ? widget.onCreatePost : null,
                     icon: const Icon(Icons.send_rounded),
                   ),
                 ],
@@ -1329,7 +1336,7 @@ class _ForumsTab extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           StreamBuilder<List<ForumPost>>(
-            stream: forumsService.streamLatestPosts(),
+            stream: widget.forumsService.streamLatestPosts(),
             builder: (context, snapshot) {
               if (snapshot.hasError) {
                 return Card(
@@ -1354,7 +1361,21 @@ class _ForumsTab extends StatelessWidget {
               return Column(
                 children: posts
                     .take(15)
-                    .map((post) => _ForumPostCard(post: post, user: user, forumsService: forumsService))
+                    .map(
+                      (post) => _ForumPostCard(
+                        key: ValueKey(post.id),
+                        post: post,
+                        user: widget.user,
+                        forumsService: widget.forumsService,
+                        isActive: _activeReplyPostId == post.id,
+                        onActivate: () => setState(() => _activeReplyPostId = post.id),
+                        onDeactivate: () => setState(() {
+                          if (_activeReplyPostId == post.id) {
+                            _activeReplyPostId = null;
+                          }
+                        }),
+                      ),
+                    )
                     .toList(growable: false),
               );
             },
@@ -1367,14 +1388,21 @@ class _ForumsTab extends StatelessWidget {
 
 class _ForumPostCard extends StatefulWidget {
   const _ForumPostCard({
+    super.key,
     required this.post,
     required this.user,
     required this.forumsService,
+    required this.isActive,
+    required this.onActivate,
+    required this.onDeactivate,
   });
 
   final ForumPost post;
   final User user;
   final ForumsService forumsService;
+  final bool isActive;
+  final VoidCallback onActivate;
+  final VoidCallback onDeactivate;
 
   @override
   State<_ForumPostCard> createState() => _ForumPostCardState();
@@ -1384,9 +1412,20 @@ class _ForumPostCardState extends State<_ForumPostCard> {
   final TextEditingController _replyController = TextEditingController();
   bool _isSubmitting = false;
 
+  @override
+  void didUpdateWidget(covariant _ForumPostCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.isActive && oldWidget.isActive) {
+      _replyController.clear();
+    }
+  }
+
   Future<void> _submitReply() async {
     final text = _replyController.text.trim();
-    if (text.isEmpty) return;
+    if (text.isEmpty) {
+      widget.onDeactivate();
+      return;
+    }
 
     setState(() => _isSubmitting = true);
     try {
@@ -1397,6 +1436,7 @@ class _ForumPostCardState extends State<_ForumPostCard> {
         body: text,
       );
       _replyController.clear();
+      widget.onDeactivate();
     } catch (_) {
       // Ignore for MVP
     } finally {
@@ -1472,33 +1512,56 @@ class _ForumPostCardState extends State<_ForumPostCard> {
               const SizedBox(height: 4),
             ],
             // Reply composer
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _replyController,
-                    enabled: !_isSubmitting,
-                    decoration: const InputDecoration(
-                      hintText: 'Add a reply...',
-                      isDense: true,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.all(Radius.circular(20)),
+            if (widget.isActive)
+              Focus(
+                onFocusChange: (focused) {
+                  if (!focused && _replyController.text.trim().isEmpty) {
+                    widget.onDeactivate();
+                  }
+                },
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _replyController,
+                        enabled: !_isSubmitting,
+                        decoration: const InputDecoration(
+                          hintText: 'Add a reply...',
+                          isDense: true,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.all(Radius.circular(20)),
+                          ),
+                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        ),
+                        style: const TextStyle(fontSize: 13),
+                        onSubmitted: (_) => _submitReply(),
+                        autofocus: true,
                       ),
-                      contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     ),
-                    style: const TextStyle(fontSize: 13),
-                    onSubmitted: (_) => _submitReply(),
+                    const SizedBox(width: 6),
+                    IconButton(
+                      icon: const Icon(Icons.send_rounded, size: 18),
+                      constraints: const BoxConstraints(),
+                      padding: const EdgeInsets.all(8),
+                      onPressed: _isSubmitting ? null : _submitReply,
+                    ),
+                  ],
+                ),
+              )
+            else
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: widget.onActivate,
+                  icon: const Icon(Icons.reply_rounded, size: 16),
+                  label: const Text('Reply'),
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    minimumSize: const Size(60, 32),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
                 ),
-                const SizedBox(width: 6),
-                IconButton(
-                  icon: const Icon(Icons.send_rounded, size: 18),
-                  constraints: const BoxConstraints(),
-                  padding: const EdgeInsets.all(8),
-                  onPressed: _isSubmitting ? null : _submitReply,
-                ),
-              ],
-            ),
+              ),
           ],
         ),
       ),
