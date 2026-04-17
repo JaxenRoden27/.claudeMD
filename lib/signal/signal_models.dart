@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+const secureImageMessagePrefix = '[image-secure-v1] ';
+
 class SignalEncryptedEnvelope {
   SignalEncryptedEnvelope({
     required this.signalMessageType,
@@ -87,6 +89,7 @@ class SignalDeliveryRecord {
     required this.envelope,
     required this.createdAt,
     required this.deliveryState,
+    this.attachmentRefs = const <String>[],
   });
 
   final String deliveryId;
@@ -101,6 +104,7 @@ class SignalDeliveryRecord {
   final SignalEncryptedEnvelope envelope;
   final DateTime createdAt;
   final String deliveryState;
+  final List<String> attachmentRefs;
 
   Map<String, dynamic> toFirestore() {
     return <String, dynamic>{
@@ -113,7 +117,7 @@ class SignalDeliveryRecord {
       'messageType': messageType,
       'protocolVersion': protocolVersion,
       'envelopeCiphertext': envelope.toPayload(),
-      'attachmentRefs': const <String>[],
+      'attachmentRefs': attachmentRefs,
       'createdAt': FieldValue.serverTimestamp(),
       'expiresAt': null,
       'serverOrder': null,
@@ -149,11 +153,97 @@ class SignalDeliveryRecord {
       envelope: SignalEncryptedEnvelope.fromPayload(
         data['envelopeCiphertext'] as String,
       ),
-      createdAt: timestamp is Timestamp
-          ? timestamp.toDate()
-          : DateTime.now(),
+      attachmentRefs:
+          ((data['attachmentRefs'] as List<dynamic>?) ?? const <dynamic>[])
+              .whereType<String>()
+              .toList(growable: false),
+      createdAt: timestamp is Timestamp ? timestamp.toDate() : DateTime.now(),
       deliveryState: data['deliveryState'] as String? ?? 'queued',
     );
+  }
+}
+
+class SecureImageAttachmentPayload {
+  const SecureImageAttachmentPayload({
+    required this.attachmentId,
+    required this.conversationId,
+    required this.storagePath,
+    required this.mimeType,
+    required this.fileKeyBase64,
+    required this.fileNonceBase64,
+    required this.fileMacBase64,
+    required this.ciphertextHash,
+    required this.sizePadded,
+  });
+
+  final String attachmentId;
+  final String conversationId;
+  final String storagePath;
+  final String mimeType;
+  final String fileKeyBase64;
+  final String fileNonceBase64;
+  final String fileMacBase64;
+  final String ciphertextHash;
+  final int sizePadded;
+
+  Map<String, dynamic> toJson() {
+    return <String, dynamic>{
+      'v': 1,
+      'kind': 'image',
+      'attachmentId': attachmentId,
+      'conversationId': conversationId,
+      'storagePath': storagePath,
+      'mimeType': mimeType,
+      'fileKey': fileKeyBase64,
+      'fileNonce': fileNonceBase64,
+      'fileMac': fileMacBase64,
+      'ciphertextHash': ciphertextHash,
+      'sizePadded': sizePadded,
+    };
+  }
+
+  String toPlaintextPayload() =>
+      '$secureImageMessagePrefix${jsonEncode(toJson())}';
+
+  factory SecureImageAttachmentPayload.fromJson(Map<String, dynamic> json) {
+    return SecureImageAttachmentPayload(
+      attachmentId: json['attachmentId'] as String,
+      conversationId: json['conversationId'] as String,
+      storagePath: json['storagePath'] as String,
+      mimeType: json['mimeType'] as String,
+      fileKeyBase64: json['fileKey'] as String,
+      fileNonceBase64: json['fileNonce'] as String,
+      fileMacBase64: json['fileMac'] as String,
+      ciphertextHash: json['ciphertextHash'] as String,
+      sizePadded: json['sizePadded'] as int,
+    );
+  }
+
+  static SecureImageAttachmentPayload? tryParseFromPlaintext(String plaintext) {
+    final trimmed = plaintext.trim();
+    if (!trimmed.startsWith(secureImageMessagePrefix)) {
+      return null;
+    }
+
+    final payload = trimmed.substring(secureImageMessagePrefix.length).trim();
+    if (payload.isEmpty) {
+      return null;
+    }
+
+    try {
+      final decoded = jsonDecode(payload);
+      if (decoded is! Map<String, dynamic>) {
+        return null;
+      }
+
+      if (decoded['v'] != 1 || decoded['kind'] != 'image') {
+        return null;
+      }
+
+      return SecureImageAttachmentPayload.fromJson(decoded);
+    } catch (_) {
+      return null;
+    }
   }
 }
 

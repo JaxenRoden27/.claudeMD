@@ -38,6 +38,7 @@ dependencies:
   firebase_auth: ^5.6.1
   cloud_firestore: ^5.6.12
   firebase_messaging: ^15.1.2
+  firebase_app_check: ^0.3.2+5
   firebase_storage: ^12.3.5
   flutter_secure_storage: ^9.2.2
   libsignal_protocol_dart: ^0.7.4

@@ -69,6 +69,16 @@
       ]
     },
     {
+      "collectionGroup": "attachments",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        {
+          "fieldPath": "expiresAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
       "collectionGroup": "one_time_prekeys",
       "queryScope": "COLLECTION_GROUP",
       "fields": [

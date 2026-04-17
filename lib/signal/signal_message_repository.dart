@@ -1,6 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cryptography/cryptography.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 
 import 'local_encrypted_chat_store.dart';
 import 'secure_signal_protocol_store.dart';
@@ -14,9 +20,9 @@ class SignalMessageRepository {
     required LocalEncryptedChatStore localStore,
     required this.localUserId,
     required this.localDeviceId,
-  })  : _firestore = firestore,
-        _signalService = signalService,
-        _localStore = localStore;
+  }) : _firestore = firestore,
+       _signalService = signalService,
+       _localStore = localStore;
 
   factory SignalMessageRepository.forLocalDevice({
     required FirebaseFirestore firestore,
@@ -40,10 +46,17 @@ class SignalMessageRepository {
   final FirebaseFirestore _firestore;
   final SignalService _signalService;
   final LocalEncryptedChatStore _localStore;
+  final Random _secureRandom = Random.secure();
+
+  static final AesGcm _attachmentCipher = AesGcm.with256bits();
+  static final Sha256 _sha256 = Sha256();
+  static const int maxEncryptedImageBytes = 5 * 1024 * 1024;
+  static const Duration _attachmentTtl = Duration(days: 7);
 
   final String localUserId;
   final String localDeviceId;
   StreamSubscription<dynamic>? _realtimeSubscription;
+  bool _syncInFlight = false;
 
   final _inboxUpdatesController = StreamController<void>.broadcast();
   Stream<void> get inboxUpdates => _inboxUpdatesController.stream;
@@ -71,9 +84,18 @@ class SignalMessageRepository {
         .where('deliveryState', isEqualTo: 'queued');
 
     _realtimeSubscription = query.snapshots().listen((snap) {
-      if (snap.docs.isNotEmpty) {
-        // Use syncPendingMessages to pull and decrypt the new documents
-        syncPendingMessages();
+      if (snap.docs.isNotEmpty && !_syncInFlight) {
+        // Avoid overlapping sync runs and swallow listener-scope failures.
+        _syncInFlight = true;
+        unawaited(() async {
+          try {
+            await syncPendingMessages();
+          } catch (_) {
+            // No-op: listener wakes sync opportunistically.
+          } finally {
+            _syncInFlight = false;
+          }
+        }());
       }
     });
   }
@@ -95,30 +117,67 @@ class SignalMessageRepository {
     return 'direct_${sorted.join('__')}';
   }
 
-  Future<String> ensureDirectConversation({
-    required String peerUserId,
-  }) async {
+  Future<String> ensureDirectConversation({required String peerUserId}) async {
     final conversationId = directConversationId(localUserId, peerUserId);
-    final conversationRef = _firestore.collection('conversations').doc(conversationId);
+    final conversationRef = _firestore
+        .collection('conversations')
+        .doc(conversationId);
     final existing = await conversationRef.get();
     if (!existing.exists) {
-      await conversationRef.set(
-        <String, dynamic>{
-          'conversationId': conversationId,
-          'type': 'direct',
-          'participantUserIds': <String>[localUserId, peerUserId]..sort(),
-          'participantSetHash': conversationId,
-          'createdBy': localUserId,
-          'createdAt': FieldValue.serverTimestamp(),
-          'latestMessageAt': FieldValue.serverTimestamp(),
-          'policy': <String, dynamic>{
-            'disappearingMessagesSeconds': null,
-            'allowHistorySync': false,
-            'protocolVersion': 1,
-          },
-          'groupId': null,
+      await conversationRef.set(<String, dynamic>{
+        'conversationId': conversationId,
+        'type': 'direct',
+        'participantUserIds': <String>[localUserId, peerUserId]..sort(),
+        'participantSetHash': conversationId,
+        'createdBy': localUserId,
+        'createdAt': FieldValue.serverTimestamp(),
+        'latestMessageAt': FieldValue.serverTimestamp(),
+        'policy': <String, dynamic>{
+          'disappearingMessagesSeconds': null,
+          'allowHistorySync': false,
+          'protocolVersion': 1,
         },
+        'groupId': null,
+      });
+    }
+    return conversationId;
+  }
+
+  Future<String> ensureGroupConversation({
+    required String groupId,
+    required List<String> memberUserIds,
+  }) async {
+    final participants = <String>{
+      localUserId,
+      ...memberUserIds,
+    }.where((id) => id.trim().isNotEmpty).toList(growable: false)..sort();
+    if (participants.length < 2) {
+      throw StateError(
+        'Group conversations require at least two participants.',
       );
+    }
+
+    final conversationId = 'group_$groupId';
+    final conversationRef = _firestore
+        .collection('conversations')
+        .doc(conversationId);
+    final existing = await conversationRef.get();
+    if (!existing.exists) {
+      await conversationRef.set(<String, dynamic>{
+        'conversationId': conversationId,
+        'type': 'group',
+        'participantUserIds': participants,
+        'participantSetHash': conversationId,
+        'createdBy': localUserId,
+        'createdAt': FieldValue.serverTimestamp(),
+        'latestMessageAt': FieldValue.serverTimestamp(),
+        'policy': <String, dynamic>{
+          'disappearingMessagesSeconds': null,
+          'allowHistorySync': false,
+          'protocolVersion': 1,
+        },
+        'groupId': groupId,
+      });
     }
     return conversationId;
   }
@@ -132,87 +191,13 @@ class SignalMessageRepository {
         'ensure direct conversation',
         () => ensureDirectConversation(peerUserId: peerUserId),
       );
-      final recipientBundles = await _runStep(
-        'load recipient devices',
-        () => _signalService.fetchActiveDeviceBundles(userId: peerUserId),
-      );
-      if (recipientBundles.isEmpty) {
-        throw StateError(
-          'The recipient has no active devices registered in public_user_bundles.',
-        );
-      }
-
-      await _runStep(
-        'record peer trust snapshot',
-        () => _recordTrustForBundles(recipientBundles),
-      );
-
       final messageId = _firestore.collection('_message_ids').doc().id;
-      final batch = _firestore.batch();
-
-      for (final bundle in recipientBundles) {
-        final envelope = await _runStep(
-          'encrypt for ${bundle.userId}/${bundle.deviceId}',
-          () => _signalService.encryptMessageForDevice(
-            senderUserId: localUserId,
-            recipientUserId: peerUserId,
-            recipientDeviceId: bundle.deviceId,
-            plaintext: plaintext,
-          ),
-        );
-
-        final deliveryRef = _firestore
-            .collection('conversations')
-            .doc(conversationId)
-            .collection('device_messages')
-            .doc();
-
-        final deliveryRecord = SignalDeliveryRecord(
-          deliveryId: deliveryRef.id,
-          conversationId: conversationId,
-          messageId: messageId,
-          senderUserId: localUserId,
-          senderDeviceId: localDeviceId,
-          recipientUserId: peerUserId,
-          recipientDeviceId: bundle.deviceId,
-          messageType: 'text',
-          protocolVersion: 1,
-          envelope: envelope,
-          createdAt: DateTime.now(),
-          deliveryState: 'queued',
-        );
-
-        batch.set(deliveryRef, deliveryRecord.toFirestore());
-      }
-
-      batch.set(
-        _firestore.collection('conversations').doc(conversationId),
-        <String, dynamic>{
-          'latestMessageAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
-
-      await _runStep('commit encrypted device fanout', batch.commit);
-
-      await _runStep(
-        'cache local outgoing plaintext',
-        () => _localStore.upsertMessage(
-          LocalChatMessage(
-            localId: null,
-            deliveryId: 'local_$messageId',
-            conversationId: conversationId,
-            messageId: messageId,
-            senderUserId: localUserId,
-            senderDeviceId: localDeviceId,
-            recipientUserId: peerUserId,
-            recipientDeviceId: recipientBundles.first.deviceId,
-            plaintext: plaintext,
-            createdAt: DateTime.now(),
-            outgoing: true,
-            deliveryState: 'sent',
-          ),
-        ),
+      await _sendFanoutMessage(
+        conversationId: conversationId,
+        messageId: messageId,
+        plaintext: plaintext,
+        messageType: 'text',
+        recipientUserIds: <String>[peerUserId],
       );
 
       _inboxUpdatesController.add(null);
@@ -225,6 +210,157 @@ class SignalMessageRepository {
     } catch (error) {
       throw StateError('sendTextMessage failed: $error');
     }
+  }
+
+  Future<void> sendGroupTextMessage({
+    required String groupId,
+    required List<String> memberUserIds,
+    required String plaintext,
+  }) async {
+    final conversationId = await ensureGroupConversation(
+      groupId: groupId,
+      memberUserIds: memberUserIds,
+    );
+    final messageId = _firestore.collection('_message_ids').doc().id;
+    await _sendFanoutMessage(
+      conversationId: conversationId,
+      messageId: messageId,
+      plaintext: plaintext,
+      messageType: 'text',
+      recipientUserIds: memberUserIds,
+    );
+    _inboxUpdatesController.add(null);
+  }
+
+  Future<void> sendEncryptedImageMessage({
+    required String peerUserId,
+    required Uint8List imageBytes,
+    required String mimeType,
+    String Function(String payload)? wrapPlaintext,
+  }) async {
+    if (imageBytes.isEmpty) {
+      throw StateError('Image payload is empty.');
+    }
+    if (imageBytes.length > maxEncryptedImageBytes) {
+      throw StateError('Image exceeds 5 MB limit after preprocessing.');
+    }
+
+    final conversationId = await ensureDirectConversation(
+      peerUserId: peerUserId,
+    );
+    final messageId = _firestore.collection('_message_ids').doc().id;
+
+    final attachment = await _createEncryptedAttachment(
+      conversationId: conversationId,
+      messageId: messageId,
+      imageBytes: imageBytes,
+      mimeType: mimeType,
+    );
+
+    final payload = SecureImageAttachmentPayload(
+      attachmentId: attachment.attachmentId,
+      conversationId: conversationId,
+      storagePath: attachment.storagePath,
+      mimeType: mimeType,
+      fileKeyBase64: attachment.fileKeyBase64,
+      fileNonceBase64: attachment.fileNonceBase64,
+      fileMacBase64: attachment.fileMacBase64,
+      ciphertextHash: attachment.ciphertextHash,
+      sizePadded: attachment.sizePadded,
+    );
+
+    final securePlaintext = payload.toPlaintextPayload();
+
+    await _sendFanoutMessage(
+      conversationId: conversationId,
+      messageId: messageId,
+      plaintext: wrapPlaintext == null
+          ? securePlaintext
+          : wrapPlaintext(securePlaintext),
+      messageType: 'image',
+      recipientUserIds: <String>[peerUserId],
+      attachmentRefs: <String>[attachment.attachmentId],
+    );
+    _inboxUpdatesController.add(null);
+  }
+
+  Future<void> sendGroupEncryptedImageMessage({
+    required String groupId,
+    required List<String> memberUserIds,
+    required Uint8List imageBytes,
+    required String mimeType,
+    String? envelopePrefix,
+    String? envelopeSuffix,
+  }) async {
+    if (imageBytes.isEmpty) {
+      throw StateError('Image payload is empty.');
+    }
+    if (imageBytes.length > maxEncryptedImageBytes) {
+      throw StateError('Image exceeds 5 MB limit after preprocessing.');
+    }
+
+    final conversationId = await ensureGroupConversation(
+      groupId: groupId,
+      memberUserIds: memberUserIds,
+    );
+    final messageId = _firestore.collection('_message_ids').doc().id;
+
+    final attachment = await _createEncryptedAttachment(
+      conversationId: conversationId,
+      messageId: messageId,
+      imageBytes: imageBytes,
+      mimeType: mimeType,
+    );
+
+    final payload = SecureImageAttachmentPayload(
+      attachmentId: attachment.attachmentId,
+      conversationId: conversationId,
+      storagePath: attachment.storagePath,
+      mimeType: mimeType,
+      fileKeyBase64: attachment.fileKeyBase64,
+      fileNonceBase64: attachment.fileNonceBase64,
+      fileMacBase64: attachment.fileMacBase64,
+      ciphertextHash: attachment.ciphertextHash,
+      sizePadded: attachment.sizePadded,
+    );
+
+    final encodedPayload = payload.toPlaintextPayload();
+    final plaintext =
+        '${envelopePrefix ?? ''}$encodedPayload${envelopeSuffix ?? ''}';
+
+    await _sendFanoutMessage(
+      conversationId: conversationId,
+      messageId: messageId,
+      plaintext: plaintext,
+      messageType: 'image',
+      recipientUserIds: memberUserIds,
+      attachmentRefs: <String>[attachment.attachmentId],
+    );
+    _inboxUpdatesController.add(null);
+  }
+
+  Future<Uint8List> decryptAttachmentPayload(
+    SecureImageAttachmentPayload payload,
+    Uint8List ciphertextBytes,
+  ) async {
+    final ciphertextHash = await _sha256.hash(ciphertextBytes);
+    if (base64Encode(ciphertextHash.bytes) != payload.ciphertextHash) {
+      throw StateError('Attachment ciphertext hash mismatch.');
+    }
+
+    if (ciphertextBytes.length < 28) {
+      throw StateError('Attachment ciphertext is malformed.');
+    }
+
+    final keyBytes = base64Decode(payload.fileKeyBase64);
+    final nonce = base64Decode(payload.fileNonceBase64);
+    final macBytes = base64Decode(payload.fileMacBase64);
+    final cipherText = ciphertextBytes.sublist(28);
+
+    final box = SecretBox(cipherText, nonce: nonce, mac: Mac(macBytes));
+    return Uint8List.fromList(
+      await _attachmentCipher.decrypt(box, secretKey: SecretKey(keyBytes)),
+    );
   }
 
   Future<int> syncPendingMessages({String? peerUserId}) async {
@@ -314,11 +450,15 @@ class SignalMessageRepository {
     try {
       inserted = await _storeInboundRecord(record);
       if (inserted && record.deliveryState == 'queued') {
-        await snap.reference.update(<String, dynamic>{'deliveryState': 'delivered'});
+        await snap.reference.update(<String, dynamic>{
+          'deliveryState': 'delivered',
+        });
       }
     } catch (e) {
       if (record.deliveryState == 'queued') {
-        await snap.reference.update(<String, dynamic>{'deliveryState': 'failed'});
+        await snap.reference.update(<String, dynamic>{
+          'deliveryState': 'failed',
+        });
       }
       return null;
     }
@@ -338,9 +478,13 @@ class SignalMessageRepository {
     );
   }
 
-  Future<List<LocalTrustRecord>> loadTrustState({
-    required String peerUserId,
+  Future<List<LocalChatMessage>> loadConversationMessagesByConversationId({
+    required String conversationId,
   }) {
+    return _localStore.loadConversationMessages(conversationId);
+  }
+
+  Future<List<LocalTrustRecord>> loadTrustState({required String peerUserId}) {
     return _localStore.loadTrustRecordsForUser(peerUserId);
   }
 
@@ -352,7 +496,9 @@ class SignalMessageRepository {
     required String peerUserId,
     required String label,
   }) async {
-    final bundles = await _signalService.fetchActiveDeviceBundles(userId: peerUserId);
+    final bundles = await _signalService.fetchActiveDeviceBundles(
+      userId: peerUserId,
+    );
     for (final bundle in bundles) {
       await _localStore.upsertTrustRecord(
         userId: bundle.userId,
@@ -403,6 +549,311 @@ class SignalMessageRepository {
     return true;
   }
 
+  Future<void> _sendFanoutMessage({
+    required String conversationId,
+    required String messageId,
+    required String plaintext,
+    required String messageType,
+    required List<String> recipientUserIds,
+    List<String> attachmentRefs = const <String>[],
+  }) async {
+    final recipients =
+        recipientUserIds
+            .where((userId) => userId != localUserId)
+            .toSet()
+            .toList(growable: false)
+          ..sort();
+    if (recipients.isEmpty) {
+      throw StateError('No valid recipients were provided.');
+    }
+
+    final batch = _firestore.batch();
+    String? localRecipientUserId;
+    String? localRecipientDeviceId;
+
+    for (final recipientUserId in recipients) {
+      final recipientBundles = await _runStep(
+        'load recipient devices',
+        () => _signalService.fetchActiveDeviceBundles(userId: recipientUserId),
+      );
+      if (recipientBundles.isEmpty) {
+        throw StateError(
+          'Recipient $recipientUserId has no active devices in public_user_bundles.',
+        );
+      }
+
+      await _runStep(
+        'record peer trust snapshot',
+        () => _recordTrustForBundles(recipientBundles),
+      );
+
+      for (final bundle in recipientBundles) {
+        final envelope = await _runStep(
+          'encrypt for ${bundle.userId}/${bundle.deviceId}',
+          () => _signalService.encryptMessageForDevice(
+            senderUserId: localUserId,
+            recipientUserId: recipientUserId,
+            recipientDeviceId: bundle.deviceId,
+            plaintext: plaintext,
+          ),
+        );
+
+        final deliveryRef = _firestore
+            .collection('conversations')
+            .doc(conversationId)
+            .collection('device_messages')
+            .doc();
+
+        final deliveryRecord = SignalDeliveryRecord(
+          deliveryId: deliveryRef.id,
+          conversationId: conversationId,
+          messageId: messageId,
+          senderUserId: localUserId,
+          senderDeviceId: localDeviceId,
+          recipientUserId: recipientUserId,
+          recipientDeviceId: bundle.deviceId,
+          messageType: messageType,
+          protocolVersion: 1,
+          envelope: envelope,
+          createdAt: DateTime.now(),
+          deliveryState: 'queued',
+          attachmentRefs: attachmentRefs,
+        );
+
+        batch.set(deliveryRef, deliveryRecord.toFirestore());
+        localRecipientUserId ??= recipientUserId;
+        localRecipientDeviceId ??= bundle.deviceId;
+      }
+    }
+
+    batch.set(
+      _firestore.collection('conversations').doc(conversationId),
+      <String, dynamic>{'latestMessageAt': FieldValue.serverTimestamp()},
+      SetOptions(merge: true),
+    );
+
+    await _runStep('commit encrypted device fanout', batch.commit);
+
+    await _runStep(
+      'cache local outgoing plaintext',
+      () => _localStore.upsertMessage(
+        LocalChatMessage(
+          localId: null,
+          deliveryId: 'local_$messageId',
+          conversationId: conversationId,
+          messageId: messageId,
+          senderUserId: localUserId,
+          senderDeviceId: localDeviceId,
+          recipientUserId: localRecipientUserId ?? recipients.first,
+          recipientDeviceId: localRecipientDeviceId ?? localDeviceId,
+          plaintext: plaintext,
+          createdAt: DateTime.now(),
+          outgoing: true,
+          deliveryState: 'sent',
+        ),
+      ),
+    );
+  }
+
+  Future<_EncryptedAttachmentUpload> _createEncryptedAttachment({
+    required String conversationId,
+    required String messageId,
+    required Uint8List imageBytes,
+    required String mimeType,
+  }) async {
+    final attachmentRef = _firestore
+        .collection('conversations')
+        .doc(conversationId)
+        .collection('attachments')
+        .doc();
+    final attachmentId = attachmentRef.id;
+    final storagePath = 'attachments/$conversationId/$messageId/$attachmentId';
+
+    final keyBytes = _randomBytes(32);
+    final fileNonce = _randomBytes(12);
+    final fileBox = await _attachmentCipher.encrypt(
+      imageBytes,
+      secretKey: SecretKey(keyBytes),
+      nonce: fileNonce,
+    );
+
+    final ciphertextBytes = Uint8List.fromList(<int>[
+      ...fileNonce,
+      ...fileBox.mac.bytes,
+      ...fileBox.cipherText,
+    ]);
+    final digest = await _sha256.hash(ciphertextBytes);
+    final ciphertextHash = base64Encode(digest.bytes);
+
+    final headerNonce = _randomBytes(12);
+    final headerPayload = jsonEncode(<String, dynamic>{
+      'mimeType': mimeType,
+      'plaintextSize': imageBytes.length,
+    });
+    final headerBox = await _attachmentCipher.encrypt(
+      utf8.encode(headerPayload),
+      secretKey: SecretKey(keyBytes),
+      nonce: headerNonce,
+    );
+    final headerCiphertext = jsonEncode(<String, String>{
+      'nonce': base64Encode(headerBox.nonce),
+      'ciphertext': base64Encode(headerBox.cipherText),
+      'mac': base64Encode(headerBox.mac.bytes),
+    });
+
+    await _uploadCiphertextWithBucketFallback(
+      storagePath: storagePath,
+      ciphertextBytes: ciphertextBytes,
+    );
+
+    await attachmentRef.set(<String, dynamic>{
+      'conversationId': conversationId,
+      'messageId': messageId,
+      'storagePath': storagePath,
+      'ciphertextHash': ciphertextHash,
+      'sizePadded': _padTo4KiB(imageBytes.length),
+      'headerCiphertext': headerCiphertext,
+      'createdAt': FieldValue.serverTimestamp(),
+      'expiresAt': Timestamp.fromDate(DateTime.now().add(_attachmentTtl)),
+    });
+
+    return _EncryptedAttachmentUpload(
+      attachmentId: attachmentId,
+      storagePath: storagePath,
+      ciphertextHash: ciphertextHash,
+      sizePadded: _padTo4KiB(imageBytes.length),
+      fileKeyBase64: base64Encode(keyBytes),
+      fileNonceBase64: base64Encode(fileBox.nonce),
+      fileMacBase64: base64Encode(fileBox.mac.bytes),
+    );
+  }
+
+  Uint8List _randomBytes(int length) {
+    return Uint8List.fromList(
+      List<int>.generate(length, (_) => _secureRandom.nextInt(256)),
+    );
+  }
+
+  Future<void> _uploadCiphertextWithBucketFallback({
+    required String storagePath,
+    required Uint8List ciphertextBytes,
+  }) async {
+    final metadata = SettableMetadata(
+      contentType: 'application/octet-stream',
+      customMetadata: <String, String>{'enc': 'aes-gcm-256', 'v': '1'},
+    );
+
+    Object? lastError;
+
+    final candidateInstances = _buildPreferredStorageInstances();
+
+    for (final storage in candidateInstances) {
+      try {
+        final ref = storage.ref(storagePath);
+        try {
+          await ref.putData(ciphertextBytes, metadata);
+        } on FirebaseException catch (error) {
+          if (!_isResumableSessionFailure(error)) {
+            rethrow;
+          }
+          // Some Android SDK sessions fail immediately with 404 on resumable endpoints.
+          // Retry as a single-request base64 upload on the same object reference.
+          await ref.putString(
+            base64Encode(ciphertextBytes),
+            format: PutStringFormat.base64,
+            metadata: metadata,
+          );
+        }
+        return;
+      } on FirebaseException catch (error) {
+        lastError = error;
+        if (!_shouldTryAnotherBucket(error)) {
+          rethrow;
+        }
+      }
+    }
+
+    if (lastError != null) {
+      throw lastError;
+    }
+    throw StateError(
+      'Attachment upload failed before contacting Firebase Storage.',
+    );
+  }
+
+  List<FirebaseStorage> _buildPreferredStorageInstances() {
+    final app = Firebase.app();
+    final configuredBucket = (app.options.storageBucket ?? '').trim();
+    final projectId = app.options.projectId.trim();
+
+    String stripGsPrefix(String bucket) {
+      return bucket.startsWith('gs://') ? bucket.substring(5) : bucket;
+    }
+
+    final canonicalCandidates = <String>{
+      if (configuredBucket.isNotEmpty) stripGsPrefix(configuredBucket),
+      if (projectId.isNotEmpty) '$projectId.appspot.com',
+      if (projectId.isNotEmpty) '$projectId.firebasestorage.app',
+    };
+
+    final instances = <FirebaseStorage>[FirebaseStorage.instance];
+    for (final bucket in canonicalCandidates) {
+      if (bucket.isEmpty) {
+        continue;
+      }
+      try {
+        instances.add(
+          FirebaseStorage.instanceFor(app: app, bucket: 'gs://$bucket'),
+        );
+      } catch (_) {
+        // Keep falling back to other candidates.
+      }
+      try {
+        instances.add(FirebaseStorage.instanceFor(app: app, bucket: bucket));
+      } catch (_) {
+        // Keep falling back to other candidates.
+      }
+    }
+
+    final deduped = <FirebaseStorage>[];
+    final seen = <String>{};
+    for (final storage in instances) {
+      final key = '${storage.app.name}|${storage.bucket}';
+      if (seen.add(key)) {
+        deduped.add(storage);
+      }
+    }
+    return deduped;
+  }
+
+  bool _shouldTryAnotherBucket(FirebaseException error) {
+    final code = error.code.toLowerCase();
+    final message = (error.message ?? '').toLowerCase();
+    return code.contains('object-not-found') ||
+        code.contains('unknown') ||
+        code.contains('canceled') ||
+        code.contains('cancelled') ||
+        code.contains('retry-limit-exceeded') ||
+        message.contains('object does not exist') ||
+        message.contains('not found') ||
+        message.contains('terminated the upload session') ||
+        message.contains('operation was cancelled') ||
+        message.contains('operation was canceled');
+  }
+
+        bool _isResumableSessionFailure(FirebaseException error) {
+          final code = error.code.toLowerCase();
+          final message = (error.message ?? '').toLowerCase();
+          return code.contains('object-not-found') ||
+          code.contains('canceled') ||
+          code.contains('cancelled') ||
+          message.contains('terminated the upload session') ||
+          message.contains('object does not exist at location') ||
+          message.contains('not found');
+        }
+
+  int _padTo4KiB(int size) => ((size + 4095) ~/ 4096) * 4096;
+
   Future<void> _recordTrustForBundles(List<SignalDeviceBundle> bundles) async {
     for (final bundle in bundles) {
       await _localStore.upsertTrustRecord(
@@ -437,10 +888,7 @@ class SignalMessageRepository {
         .get();
   }
 
-  Future<T> _runStep<T>(
-    String label,
-    Future<T> Function() action,
-  ) async {
+  Future<T> _runStep<T>(String label, Future<T> Function() action) async {
     try {
       return await action();
     } on FirebaseException catch (error) {
@@ -451,4 +899,24 @@ class SignalMessageRepository {
       throw StateError('$label failed: $error');
     }
   }
+}
+
+class _EncryptedAttachmentUpload {
+  const _EncryptedAttachmentUpload({
+    required this.attachmentId,
+    required this.storagePath,
+    required this.ciphertextHash,
+    required this.sizePadded,
+    required this.fileKeyBase64,
+    required this.fileNonceBase64,
+    required this.fileMacBase64,
+  });
+
+  final String attachmentId;
+  final String storagePath;
+  final String ciphertextHash;
+  final int sizePadded;
+  final String fileKeyBase64;
+  final String fileNonceBase64;
+  final String fileMacBase64;
 }

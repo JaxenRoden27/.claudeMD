@@ -2,7 +2,6 @@ import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -105,6 +104,7 @@ class _SignalChatPageState extends State<SignalChatPage> {
     _forumComposerController.dispose();
     _groupNameController.dispose();
     _fcmCoordinator?.dispose();
+    _repository?.dispose();
     super.dispose();
   }
 
@@ -163,6 +163,12 @@ class _SignalChatPageState extends State<SignalChatPage> {
         profileLabel: _preferredProfileLabel(),
       );
 
+      if (!mounted) {
+        repository.dispose();
+        return;
+      }
+
+      _repository?.dispose();
       setState(() {
         _repository = repository;
         _activeUserId = widget.user.uid;
@@ -172,13 +178,18 @@ class _SignalChatPageState extends State<SignalChatPage> {
       await _bindForegroundWakeHandler();
       await _reloadLocalState();
     } catch (e) {
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _status = 'Signal initialization failed: $e';
       });
     } finally {
-      setState(() {
-        _busy = false;
-      });
+      if (mounted) {
+        setState(() {
+          _busy = false;
+        });
+      }
     }
   }
 
@@ -190,7 +201,7 @@ class _SignalChatPageState extends State<SignalChatPage> {
     }
 
     _fcmCoordinator?.dispose();
-    final coordinator = SignalFcmCoordinator(
+    final   coordinator = SignalFcmCoordinator(
       firestore: FirebaseFirestore.instance,
     );
     await coordinator.initializeForeground(
@@ -324,10 +335,8 @@ class _SignalChatPageState extends State<SignalChatPage> {
   Future<void> _sendImageMessage() async {
     final repository = _repository;
     final peerUserId = _peerUserId;
-    final activeUserId = _activeUserId;
     if (repository == null ||
         peerUserId == null ||
-        activeUserId == null ||
         !widget.bootstrapState.firebaseReady) {
       return;
     }
@@ -348,24 +357,10 @@ class _SignalChatPageState extends State<SignalChatPage> {
 
     try {
       final bytes = await selected.readAsBytes();
-      final fileName =
-          '${DateTime.now().millisecondsSinceEpoch}_${selected.name}';
-      final storageRef = FirebaseStorage.instance
-          .ref()
-          .child('chat_uploads')
-          .child(activeUserId)
-          .child(fileName);
-
-      await storageRef.putData(
-        bytes,
-        SettableMetadata(
-          contentType: selected.mimeType ?? 'application/octet-stream',
-        ),
-      );
-      final imageUrl = await storageRef.getDownloadURL();
-      await repository.sendTextMessage(
+      await repository.sendEncryptedImageMessage(
         peerUserId: peerUserId,
-        plaintext: '[image] $imageUrl',
+        imageBytes: bytes,
+        mimeType: selected.mimeType ?? 'image/jpeg',
       );
       await _reloadLocalState();
       if (!mounted) {
@@ -379,7 +374,7 @@ class _SignalChatPageState extends State<SignalChatPage> {
         return;
       }
       setState(() {
-        _status = 'Image send failed: $error';
+        _status = _describeImageUploadError(error);
       });
     } finally {
       if (mounted) {
@@ -735,6 +730,23 @@ class _SignalChatPageState extends State<SignalChatPage> {
   }
 }
 
+String _describeImageUploadError(Object error) {
+  final raw = error.toString();
+  final lowered = raw.toLowerCase();
+  if (lowered.contains('terminated the upload session') ||
+      lowered.contains('object does not exist') ||
+      lowered.contains('not found')) {
+    return 'Image upload failed: Storage bucket/session not found. Verify Firebase Storage is enabled, bucket name is correct, and try again.';
+  }
+  if (lowered.contains('app check') || lowered.contains('appcheckprovider')) {
+    return 'Image upload blocked by App Check configuration. Install an App Check provider (or debug provider in dev).';
+  }
+  if (lowered.contains('permission') || lowered.contains('unauthorized')) {
+    return 'Image upload denied by Storage rules. Confirm conversation membership and auth state.';
+  }
+  return 'Image send failed: $error';
+}
+
 class _StatusCard extends StatelessWidget {
   const _StatusCard({
     required this.status,
@@ -922,6 +934,10 @@ class _MessagesPanel extends StatelessWidget {
                 final message = messages[index];
                 final outgoing = message.senderUserId == activeUserId;
                 final imageUrl = _extractImageMessageUrl(message.plaintext);
+                final secureImage =
+                    SecureImageAttachmentPayload.tryParseFromPlaintext(
+                      message.plaintext,
+                    );
                 return Align(
                   alignment: outgoing
                       ? Alignment.centerRight
@@ -968,6 +984,36 @@ class _MessagesPanel extends StatelessWidget {
                                   height: 170,
                                   fit: BoxFit.cover,
                                 ),
+                              )
+                            else if (secureImage != null)
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: <Widget>[
+                                  Icon(
+                                    Icons.image,
+                                    color: outgoing
+                                        ? Colors.white
+                                        : dark
+                                        ? _textPrimaryDark
+                                        : _textPrimaryLight,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Flexible(
+                                    child: Text(
+                                      'Encrypted image attachment',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodyLarge
+                                          ?.copyWith(
+                                            color: outgoing
+                                                ? Colors.white
+                                                : dark
+                                                ? _textPrimaryDark
+                                                : _textPrimaryLight,
+                                          ),
+                                    ),
+                                  ),
+                                ],
                               )
                             else
                               Text(
@@ -1023,6 +1069,16 @@ String? _extractImageMessageUrl(String plaintext) {
   }
 
   return candidate;
+}
+
+String _conversationSubtitleForMessage(String plaintext) {
+  if (_extractImageMessageUrl(plaintext) != null) {
+    return 'Image attachment';
+  }
+  if (SecureImageAttachmentPayload.tryParseFromPlaintext(plaintext) != null) {
+    return 'Encrypted image attachment';
+  }
+  return plaintext;
 }
 
 class _ComposerBar extends StatelessWidget {
@@ -1109,7 +1165,7 @@ class _ConversationsTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final subtitle = lastMessage == null
         ? 'No messages yet.'
-        : lastMessage!.plaintext;
+        : _conversationSubtitleForMessage(lastMessage!.plaintext);
     final timestamp = lastMessage == null
         ? 'now'
         : '${lastMessage!.createdAt.hour.toString().padLeft(2, '0')}:${lastMessage!.createdAt.minute.toString().padLeft(2, '0')}';
