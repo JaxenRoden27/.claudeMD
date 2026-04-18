@@ -221,8 +221,8 @@ class _ChatPageState extends State<ChatPage> {
     final allPeers = await repository.loadAllKnownPeers();
 
     if (peerUserId != null) {
-      await repository.loadConversationMessages(peerUserId: peerUserId);
-      await repository.loadTrustState(peerUserId: peerUserId);
+      messages = await repository.loadConversationMessages(peerUserId: peerUserId);
+      trustRecords = await repository.loadTrustState(peerUserId: peerUserId);
     }
 
     if (!mounted) return;
@@ -637,33 +637,31 @@ class _ChatPageState extends State<ChatPage> {
               setState(() {
                 _peerUserId = peer.userId;
               });
-              Navigator.of(context)
-                  .push(
-                    MaterialPageRoute<void>(
-                      builder: (context) => _ChatDetailPage(
-                        dark: dark,
-                        user: widget.user,
-                        peerUserId: peer.userId,
-                        peerLabel: peer.label ?? peer.userId,
-                        repository: _repository!,
-                        composerController: _composerController,
-                        busy: _busy,
-                        firebaseReady: widget.bootstrapState.firebaseReady,
-                        status: _status,
-                        warning: widget.bootstrapState.warning,
-                        onSend: _sendMessage,
-                        onSendImage: _sendImageMessage,
-                        onSync: _syncInbox,
-                      ),
-                    ),
-                  )
-                  .then((_) => _reloadLocalState());
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (context) => _ChatDetailPage(
+                    dark: dark,
+                    user: widget.user,
+                    peerUserId: peer.userId,
+                    peerLabel: peer.label ?? peer.userId,
+                    repository: _repository!,
+                    composerController: _composerController,
+                    busy: _busy,
+                    firebaseReady: widget.bootstrapState.firebaseReady,
+                    status: _status,
+                    warning: widget.bootstrapState.warning,
+                    onSend: _sendMessage,
+                    onSendImage: _sendImageMessage,
+                    onSync: _syncInbox,
+                  ),
+                ),
+              ).then((_) => _reloadLocalState());
             },
             onSync: widget.bootstrapState.firebaseReady && !_busy
                 ? _syncInbox
                 : null,
           ),
-          _ContactsTab(
+          _ForumsTab(
             dark: dark,
             user: widget.user,
             forumsService: _forumsService,
@@ -739,9 +737,9 @@ class _ChatPageState extends State<ChatPage> {
             label: 'Chats',
           ),
           NavigationDestination(
-            icon: Icon(Icons.people_alt_outlined),
-            selectedIcon: Icon(Icons.people_alt_rounded),
-            label: 'Contacts',
+            icon: Icon(Icons.question_answer_outlined),
+            selectedIcon: Icon(Icons.question_answer_rounded),
+            label: 'Forums',
           ),
           NavigationDestination(
             icon: Icon(Icons.groups_outlined),
@@ -1214,18 +1212,11 @@ class _ConversationsTab extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
             sliver: SliverList(
               delegate: SliverChildListDelegate([
-                _StatusCard(
-                  status: status,
-                  busy: busy,
-                  dark: dark,
-                  warning: warning,
-                ),
+                _StatusCard(status: status, busy: busy, dark: dark, warning: warning),
                 const SizedBox(height: 12),
                 Text(
                   'Conversations',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
                 ),
                 const SizedBox(height: 10),
                 if (peers.isEmpty)
@@ -1233,9 +1224,7 @@ class _ConversationsTab extends StatelessWidget {
                     child: ListTile(
                       leading: Icon(Icons.inbox),
                       title: Text('No active conversations.'),
-                      subtitle: Text(
-                        'Scan a QR code to securely message a peer.',
-                      ),
+                      subtitle: Text('Scan a QR code to securely message a peer.'),
                     ),
                   ),
               ]),
@@ -1244,37 +1233,38 @@ class _ConversationsTab extends StatelessWidget {
           SliverPadding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             sliver: SliverList(
-              delegate: SliverChildBuilderDelegate((context, index) {
-                final peer = peers[index];
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(18),
-                  ),
-                  child: ListTile(
-                    onTap: onOpenConversation != null
-                        ? () => onOpenConversation!(peer)
-                        : null,
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 10,
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  final peer = peers[index];
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(18),
                     ),
-                    leading: CircleAvatar(
-                      backgroundColor: _honeyBronze.withValues(alpha: 0.18),
-                      child: const Icon(Icons.person, color: _honeyBronze),
+                    child: ListTile(
+                      onTap: onOpenConversation != null ? () => onOpenConversation!(peer) : null,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 10,
+                      ),
+                      leading: CircleAvatar(
+                        backgroundColor: _honeyBronze.withValues(alpha: 0.18),
+                        child: const Icon(Icons.person, color: _honeyBronze),
+                      ),
+                      title: Text(
+                        peer.label ?? 'Unknown Peer',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      subtitle: Text(
+                        'Device: ${peer.deviceId}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                    title: Text(
-                      peer.label ?? 'Unknown Peer',
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    subtitle: Text(
-                      'Device: ${peer.deviceId}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                );
-              }, childCount: peers.length),
+                  );
+                },
+                childCount: peers.length,
+              ),
             ),
           ),
         ],
@@ -1444,8 +1434,8 @@ class _ChatDetailPageState extends State<_ChatDetailPage> {
   }
 }
 
-class _ContactsTab extends StatelessWidget {
-  const _ContactsTab({
+class _ForumsTab extends StatefulWidget {
+  const _ForumsTab({
     required this.dark,
     required this.user,
     required this.forumsService,
@@ -1462,9 +1452,16 @@ class _ContactsTab extends StatelessWidget {
   final VoidCallback onCreatePost;
 
   @override
+  State<_ForumsTab> createState() => _ForumsTabState();
+}
+
+class _ForumsTabState extends State<_ForumsTab> {
+  String? _activeReplyPostId;
+
+  @override
   Widget build(BuildContext context) {
     return Container(
-      color: dark ? _bgDark : _bgLight,
+      color: widget.dark ? _bgDark : _bgLight,
       child: ListView(
         padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
         children: <Widget>[
@@ -1486,8 +1483,8 @@ class _ContactsTab extends StatelessWidget {
                 children: <Widget>[
                   Expanded(
                     child: TextField(
-                      controller: composerController,
-                      enabled: !busy,
+                      controller: widget.composerController,
+                      enabled: !widget.busy,
                       decoration: const InputDecoration(
                         hintText: 'Post to forum',
                         border: InputBorder.none,
@@ -1495,7 +1492,7 @@ class _ContactsTab extends StatelessWidget {
                     ),
                   ),
                   IconButton(
-                    onPressed: !busy ? onCreatePost : null,
+                    onPressed: !widget.busy ? widget.onCreatePost : null,
                     icon: const Icon(Icons.send_rounded),
                   ),
                 ],
@@ -1504,7 +1501,7 @@ class _ContactsTab extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           StreamBuilder<List<ForumPost>>(
-            stream: forumsService.streamLatestPosts(),
+            stream: widget.forumsService.streamLatestPosts(),
             builder: (context, snapshot) {
               if (snapshot.hasError) {
                 return Card(
@@ -1530,17 +1527,18 @@ class _ContactsTab extends StatelessWidget {
                 children: posts
                     .take(15)
                     .map(
-                      (post) => Card(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        child: ListTile(
-                          leading: const Icon(Icons.message_outlined),
-                          title: Text(post.authorLabel),
-                          subtitle: Text(post.body),
-                          trailing: Text(
-                            '${post.createdAt.hour.toString().padLeft(2, '0')}:${post.createdAt.minute.toString().padLeft(2, '0')}',
-                            style: Theme.of(context).textTheme.labelSmall,
-                          ),
-                        ),
+                      (post) => _ForumPostCard(
+                        key: ValueKey(post.id),
+                        post: post,
+                        user: widget.user,
+                        forumsService: widget.forumsService,
+                        isActive: _activeReplyPostId == post.id,
+                        onActivate: () => setState(() => _activeReplyPostId = post.id),
+                        onDeactivate: () => setState(() {
+                          if (_activeReplyPostId == post.id) {
+                            _activeReplyPostId = null;
+                          }
+                        }),
                       ),
                     )
                     .toList(growable: false),
@@ -1548,6 +1546,189 @@ class _ContactsTab extends StatelessWidget {
             },
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ForumPostCard extends StatefulWidget {
+  const _ForumPostCard({
+    super.key,
+    required this.post,
+    required this.user,
+    required this.forumsService,
+    required this.isActive,
+    required this.onActivate,
+    required this.onDeactivate,
+  });
+
+  final ForumPost post;
+  final User user;
+  final ForumsService forumsService;
+  final bool isActive;
+  final VoidCallback onActivate;
+  final VoidCallback onDeactivate;
+
+  @override
+  State<_ForumPostCard> createState() => _ForumPostCardState();
+}
+
+class _ForumPostCardState extends State<_ForumPostCard> {
+  final TextEditingController _replyController = TextEditingController();
+  bool _isSubmitting = false;
+
+  @override
+  void didUpdateWidget(covariant _ForumPostCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.isActive && oldWidget.isActive) {
+      _replyController.clear();
+    }
+  }
+
+  Future<void> _submitReply() async {
+    final text = _replyController.text.trim();
+    if (text.isEmpty) {
+      widget.onDeactivate();
+      return;
+    }
+
+    setState(() => _isSubmitting = true);
+    try {
+      await widget.forumsService.addReply(
+        postId: widget.post.id,
+        authorUserId: widget.user.uid,
+        authorLabel: widget.user.displayName ?? widget.user.email ?? 'User',
+        body: text,
+      );
+      _replyController.clear();
+      widget.onDeactivate();
+    } catch (_) {
+      // Ignore for MVP
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _replyController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            // Parent Post
+            Row(
+              children: [
+                const Icon(Icons.message_outlined, size: 20),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    widget.post.authorLabel,
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+                Text(
+                  '${widget.post.createdAt.hour.toString().padLeft(2, '0')}:${widget.post.createdAt.minute.toString().padLeft(2, '0')}',
+                  style: Theme.of(context).textTheme.labelSmall,
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(widget.post.body),
+            const Divider(height: 24),
+            // Replies list
+            if (widget.post.replies.isNotEmpty) ...[
+              for (final reply in widget.post.replies)
+                Padding(
+                  padding: const EdgeInsets.only(left: 16, bottom: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.reply_rounded, size: 14, color: Colors.grey),
+                          const SizedBox(width: 4),
+                          Text(
+                            reply.authorLabel,
+                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                          ),
+                          const Spacer(),
+                          Text(
+                            '${reply.createdAt.hour.toString().padLeft(2, '0')}:${reply.createdAt.minute.toString().padLeft(2, '0')}',
+                            style: Theme.of(context).textTheme.labelSmall?.copyWith(fontSize: 10),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(reply.body, style: const TextStyle(fontSize: 13)),
+                    ],
+                  ),
+                ),
+              const SizedBox(height: 4),
+            ],
+            // Reply composer
+            if (widget.isActive)
+              Focus(
+                onFocusChange: (focused) {
+                  if (!focused && _replyController.text.trim().isEmpty) {
+                    widget.onDeactivate();
+                  }
+                },
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _replyController,
+                        enabled: !_isSubmitting,
+                        decoration: const InputDecoration(
+                          hintText: 'Add a reply...',
+                          isDense: true,
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.all(Radius.circular(20)),
+                          ),
+                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        ),
+                        style: const TextStyle(fontSize: 13),
+                        onSubmitted: (_) => _submitReply(),
+                        autofocus: true,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    IconButton(
+                      icon: const Icon(Icons.send_rounded, size: 18),
+                      constraints: const BoxConstraints(),
+                      padding: const EdgeInsets.all(8),
+                      onPressed: _isSubmitting ? null : _submitReply,
+                    ),
+                  ],
+                ),
+              )
+            else
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: widget.onActivate,
+                  icon: const Icon(Icons.reply_rounded, size: 16),
+                  label: const Text('Reply'),
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    minimumSize: const Size(60, 32),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
