@@ -1,4 +1,5 @@
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_app_check/firebase_app_check.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -81,7 +82,8 @@ class _MyApp extends StatelessWidget {
           }
 
           return AuthWrapper(
-            bootstrapState: snapshot.data ?? const AppBootstrapState.firebaseUnavailable(),
+            bootstrapState:
+                snapshot.data ?? const AppBootstrapState.firebaseUnavailable(),
           );
         },
       ),
@@ -99,6 +101,26 @@ Future<AppBootstrapState> _bootstrapApplication() async {
       options: DefaultFirebaseOptions.currentPlatform,
     );
     firebaseReady = true;
+
+    try {
+      if (kIsWeb) {
+        // App Check for web requires a real reCAPTCHA key; skip here unless configured.
+      } else {
+        await FirebaseAppCheck.instance.activate(
+          androidProvider: kDebugMode
+              ? AndroidProvider.debug
+              : AndroidProvider.playIntegrity,
+          appleProvider: kDebugMode
+              ? AppleProvider.debug
+              : AppleProvider.deviceCheck,
+        );
+      }
+    } catch (error) {
+      warning = _appendWarning(
+        warning,
+        'App Check setup issue: $error',
+      );
+    }
   } catch (error) {
     warning = 'Firebase setup issue: $error';
   }

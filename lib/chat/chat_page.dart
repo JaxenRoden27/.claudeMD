@@ -4,7 +4,6 @@ import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -13,6 +12,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../services/app_feature_services.dart';
 import '../auth/auth_service.dart';
 import '../models/app_bootstrap_state.dart';
+import '../signal/encrypted_image_attachment_view.dart';
 import '../signal/signal_fcm_coordinator.dart';
 import '../signal/signal_message_repository.dart';
 import '../signal/signal_models.dart';
@@ -61,6 +61,7 @@ class _ChatPageState extends State<ChatPage> {
 
   SignalMessageRepository? _repository;
   SignalFcmCoordinator? _fcmCoordinator;
+  StreamSubscription<void>? _repositoryInboxSubscription;
   String? _activeUserId;
   String? _peerUserId;
   AccountQrPayload? _linkedAccount;
@@ -87,7 +88,9 @@ class _ChatPageState extends State<ChatPage> {
   void dispose() {
     _composerController.dispose();
     _forumComposerController.dispose();
+    _repositoryInboxSubscription?.cancel();
     _fcmCoordinator?.dispose();
+    _repository?.dispose();
     super.dispose();
   }
 
@@ -145,6 +148,14 @@ class _ChatPageState extends State<ChatPage> {
         profileLabel: _preferredProfileLabel(),
       );
 
+      if (!mounted) {
+        repository.dispose();
+        return;
+      }
+
+      _repositoryInboxSubscription?.cancel();
+      _repository?.dispose();
+
       setState(() {
         _repository = repository;
         _activeUserId = widget.user.uid;
@@ -152,18 +163,25 @@ class _ChatPageState extends State<ChatPage> {
       });
 
       repository.setupRealtimeListener();
-      repository.inboxUpdates.listen((_) => _reloadLocalState());
+      _repositoryInboxSubscription = repository.inboxUpdates.listen((_) {
+        _reloadLocalState();
+      });
 
       await _bindForegroundWakeHandler();
       await _reloadLocalState();
     } catch (e) {
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _status = 'Signal initialization failed: $e';
       });
     } finally {
-      setState(() {
-        _busy = false;
-      });
+      if (mounted) {
+        setState(() {
+          _busy = false;
+        });
+      }
     }
   }
 
@@ -203,9 +221,7 @@ class _ChatPageState extends State<ChatPage> {
     final allPeers = await repository.loadAllKnownPeers();
 
     if (peerUserId != null) {
-      await repository.loadConversationMessages(
-        peerUserId: peerUserId,
-      );
+      await repository.loadConversationMessages(peerUserId: peerUserId);
       await repository.loadTrustState(peerUserId: peerUserId);
     }
 
@@ -305,10 +321,8 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> _sendImageMessage() async {
     final repository = _repository;
     final peerUserId = _peerUserId;
-    final activeUserId = _activeUserId;
     if (repository == null ||
         peerUserId == null ||
-        activeUserId == null ||
         !widget.bootstrapState.firebaseReady) {
       return;
     }
@@ -329,24 +343,10 @@ class _ChatPageState extends State<ChatPage> {
 
     try {
       final bytes = await selected.readAsBytes();
-      final fileName =
-          '${DateTime.now().millisecondsSinceEpoch}_${selected.name}';
-      final storageRef = FirebaseStorage.instance
-          .ref()
-          .child('chat_uploads')
-          .child(activeUserId)
-          .child(fileName);
-
-      await storageRef.putData(
-        bytes,
-        SettableMetadata(
-          contentType: selected.mimeType ?? 'application/octet-stream',
-        ),
-      );
-      final imageUrl = await storageRef.getDownloadURL();
-      await repository.sendTextMessage(
+      await repository.sendEncryptedImageMessage(
         peerUserId: peerUserId,
-        plaintext: '[image] $imageUrl',
+        imageBytes: bytes,
+        mimeType: selected.mimeType ?? 'image/jpeg',
       );
       FocusManager.instance.primaryFocus?.unfocus();
       await _reloadLocalState();
@@ -361,7 +361,7 @@ class _ChatPageState extends State<ChatPage> {
         return;
       }
       setState(() {
-        _status = 'Image send failed: $error';
+        _status = _describeImageUploadError(error);
       });
     } finally {
       if (mounted) {
@@ -759,6 +759,23 @@ class _ChatPageState extends State<ChatPage> {
   }
 }
 
+String _describeImageUploadError(Object error) {
+  final raw = error.toString();
+  final lowered = raw.toLowerCase();
+  if (lowered.contains('terminated the upload session') ||
+      lowered.contains('object does not exist') ||
+      lowered.contains('not found')) {
+    return 'Image upload failed: Storage bucket/session not found. Verify Firebase Storage is enabled, bucket name is correct, and try again.';
+  }
+  if (lowered.contains('app check') || lowered.contains('appcheckprovider')) {
+    return 'Image upload blocked by App Check configuration. Install an App Check provider (or debug provider in dev).';
+  }
+  if (lowered.contains('permission') || lowered.contains('unauthorized')) {
+    return 'Image upload denied by Storage rules. Confirm conversation membership and auth state.';
+  }
+  return 'Image send failed: $error';
+}
+
 class _StatusCard extends StatelessWidget {
   const _StatusCard({
     required this.status,
@@ -857,8 +874,6 @@ class _ConversationMetaCard extends StatelessWidget {
   final String peerLabel;
   final List<LocalTrustRecord> trustRecords;
 
-
-
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -879,8 +894,6 @@ class _ConversationMetaCard extends StatelessWidget {
               color: dark ? _textPrimaryDark : _textPrimaryLight,
             ),
           ),
-
-
         ],
       ),
     );
@@ -890,6 +903,7 @@ class _ConversationMetaCard extends StatelessWidget {
 class _MessagesPanel extends StatelessWidget {
   const _MessagesPanel({
     required this.dark,
+    required this.repository,
     required this.messages,
     required this.activeUserId,
     required this.peerLabel,
@@ -897,6 +911,7 @@ class _MessagesPanel extends StatelessWidget {
   });
 
   final bool dark;
+  final SignalMessageRepository repository;
   final List<LocalChatMessage> messages;
   final String? activeUserId;
   final String peerLabel;
@@ -930,6 +945,10 @@ class _MessagesPanel extends StatelessWidget {
                 final message = messages[index];
                 final outgoing = message.senderUserId == activeUserId;
                 final imageUrl = _extractImageMessageUrl(message.plaintext);
+                final secureImage =
+                    SecureImageAttachmentPayload.tryParseFromPlaintext(
+                      message.plaintext,
+                    );
                 return Align(
                   alignment: outgoing
                       ? Alignment.centerRight
@@ -976,6 +995,14 @@ class _MessagesPanel extends StatelessWidget {
                                   height: 170,
                                   fit: BoxFit.cover,
                                 ),
+                              )
+                            else if (secureImage != null)
+                              EncryptedImageAttachmentView(
+                                key: ValueKey<String>(secureImage.attachmentId),
+                                repository: repository,
+                                payload: secureImage,
+                                dark: dark,
+                                outgoing: outgoing,
                               )
                             else
                               Text(
@@ -1390,6 +1417,7 @@ class _ChatDetailPageState extends State<_ChatDetailPage> {
                   padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
                   child: _MessagesPanel(
                     dark: widget.dark,
+                    repository: widget.repository,
                     messages: _messages,
                     activeUserId: widget.user.uid,
                     peerLabel: widget.peerLabel,
@@ -1544,7 +1572,8 @@ class _GroupsTab extends StatelessWidget {
   final Future<void> Function({
     required String name,
     List<String> initialMemberUserIds,
-  }) onCreateGroup;
+  })
+  onCreateGroup;
   final ValueChanged<String> onStatusChange;
 
   Future<void> _showCreateGroupDialog(BuildContext context) async {
@@ -1568,9 +1597,9 @@ class _GroupsTab extends StatelessWidget {
       if (!context.mounted) {
         return;
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to create group: $error')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Failed to create group: $error')));
     }
   }
 
@@ -1781,8 +1810,7 @@ class _CreateGroupDialogState extends State<_CreateGroupDialog> {
 
                   final users = (snapshot.data ?? const <AppUserProfile>[])
                       .where(
-                        (candidate) =>
-                            candidate.userId != widget.currentUserId,
+                        (candidate) => candidate.userId != widget.currentUserId,
                       )
                       .toList(growable: false);
 
@@ -1830,10 +1858,7 @@ class _CreateGroupDialogState extends State<_CreateGroupDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Cancel'),
         ),
-        FilledButton(
-          onPressed: _submit,
-          child: const Text('Create'),
-        ),
+        FilledButton(onPressed: _submit, child: const Text('Create')),
       ],
     );
   }
@@ -1862,6 +1887,7 @@ class _GroupDetailPage extends StatefulWidget {
 
 class _GroupDetailPageState extends State<_GroupDetailPage> {
   final TextEditingController _composerController = TextEditingController();
+  final ImagePicker _imagePicker = ImagePicker();
 
   StreamSubscription<List<AppGroupMember>>? _memberSubscription;
   StreamSubscription<void>? _inboxSubscription;
@@ -1941,12 +1967,13 @@ class _GroupDetailPageState extends State<_GroupDetailPage> {
       return;
     }
 
-    final memberIds = (_members.isEmpty
-            ? widget.group.memberUserIds
-            : _members.map((member) => member.userId))
-        .where((userId) => userId != widget.user.uid)
-        .toSet()
-        .toList(growable: false);
+    final memberIds =
+        (_members.isEmpty
+                ? widget.group.memberUserIds
+                : _members.map((member) => member.userId))
+            .where((userId) => userId != widget.user.uid)
+            .toSet()
+            .toList(growable: false);
 
     if (memberIds.isEmpty) {
       if (mounted) {
@@ -1980,7 +2007,8 @@ class _GroupDetailPageState extends State<_GroupDetailPage> {
         );
 
         final existing = deduped[payload.groupMessageId];
-        if (existing == null || candidate.createdAt.isBefore(existing.createdAt)) {
+        if (existing == null ||
+            candidate.createdAt.isBefore(existing.createdAt)) {
           deduped[payload.groupMessageId] = candidate;
         }
       }
@@ -2060,10 +2088,87 @@ class _GroupDetailPageState extends State<_GroupDetailPage> {
     });
 
     if (failures.isEmpty) {
-      _setStatus('Sent secure group message to ${recipients.length} member(s).');
+      _setStatus(
+        'Sent secure group message to ${recipients.length} member(s).',
+      );
     } else {
       _setStatus(
         'Sent with partial failures. Could not deliver to: ${failures.join(', ')}',
+      );
+    }
+  }
+
+  Future<void> _sendGroupImageMessage() async {
+    final repository = widget.repository;
+    if (repository == null || widget.user.uid.trim().isEmpty) {
+      return;
+    }
+    if (!_isCurrentUserMember) {
+      _setStatus('You are no longer a member of this group.');
+      return;
+    }
+
+    final selected = await _imagePicker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 85,
+      maxWidth: 2048,
+    );
+    if (selected == null) {
+      return;
+    }
+
+    final recipients = _members
+        .where((member) => member.userId != widget.user.uid)
+        .map((member) => member.userId)
+        .toSet()
+        .toList(growable: false);
+    if (recipients.isEmpty) {
+      _setStatus('Add at least one other member before sending images.');
+      return;
+    }
+
+    final imageBytes = await selected.readAsBytes();
+    final groupMessageId = FirebaseFirestore.instance
+        .collection('_group_message_ids')
+        .doc()
+        .id;
+
+    setState(() {
+      _busy = true;
+    });
+
+    final failures = <String>[];
+    for (final recipientUserId in recipients) {
+      try {
+        await repository.sendEncryptedImageMessage(
+          peerUserId: recipientUserId,
+          imageBytes: imageBytes,
+          mimeType: selected.mimeType ?? 'image/jpeg',
+          wrapPlaintext: (payload) => _encodeGroupEnvelope(
+            groupId: widget.group.id,
+            groupMessageId: groupMessageId,
+            body: payload,
+          ),
+        );
+      } catch (_) {
+        failures.add(recipientUserId);
+      }
+    }
+
+    await _reloadMessages();
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _busy = false;
+    });
+
+    if (failures.isEmpty) {
+      _setStatus('Sent encrypted image to ${recipients.length} member(s).');
+    } else {
+      _setStatus(
+        'Image sent with partial failures. Could not deliver to: ${failures.join(', ')}',
       );
     }
   }
@@ -2073,9 +2178,7 @@ class _GroupDetailPageState extends State<_GroupDetailPage> {
       return;
     }
 
-    final currentMemberIds = _members
-        .map((member) => member.userId)
-        .toSet();
+    final currentMemberIds = _members.map((member) => member.userId).toSet();
     final selectedUserIds = <String>{};
     var saving = false;
     var completed = false;
@@ -2100,12 +2203,17 @@ class _GroupDetailPageState extends State<_GroupDetailPage> {
                       return Text('Failed to load users: ${snapshot.error}');
                     }
 
-                    final candidates = (snapshot.data ?? const <AppUserProfile>[])
-                        .where((user) => !currentMemberIds.contains(user.userId))
-                        .toList(growable: false);
+                    final candidates =
+                        (snapshot.data ?? const <AppUserProfile>[])
+                            .where(
+                              (user) => !currentMemberIds.contains(user.userId),
+                            )
+                            .toList(growable: false);
 
                     if (candidates.isEmpty) {
-                      return const Text('There are no additional app users to add.');
+                      return const Text(
+                        'There are no additional app users to add.',
+                      );
                     }
 
                     return ListView.builder(
@@ -2175,7 +2283,9 @@ class _GroupDetailPageState extends State<_GroupDetailPage> {
                             if (dialogContext.mounted) {
                               ScaffoldMessenger.of(dialogContext).showSnackBar(
                                 SnackBar(
-                                  content: Text('Failed to add members: $error'),
+                                  content: Text(
+                                    'Failed to add members: $error',
+                                  ),
                                 ),
                               );
                             }
@@ -2353,7 +2463,8 @@ class _GroupDetailPageState extends State<_GroupDetailPage> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
                 child: _StatusCard(
-                  status: _inlineStatus ??
+                  status:
+                      _inlineStatus ??
                       (_isCurrentUserOwner
                           ? 'Owner • ${_members.length} members'
                           : _isCurrentUserMember
@@ -2369,6 +2480,7 @@ class _GroupDetailPageState extends State<_GroupDetailPage> {
                   padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
                   child: _GroupMessagesPanel(
                     dark: widget.dark,
+                    repository: widget.repository,
                     messages: _messages,
                     activeUserId: widget.user.uid,
                     resolveSenderLabel: _labelForUser,
@@ -2382,6 +2494,7 @@ class _GroupDetailPageState extends State<_GroupDetailPage> {
                   dark: widget.dark,
                   enabled: !_busy && _isCurrentUserMember,
                   onSend: _sendGroupMessage,
+                  onSendImage: _sendGroupImageMessage,
                 ),
               ),
             ],
@@ -2413,12 +2526,14 @@ class _GroupMessageView {
 class _GroupMessagesPanel extends StatelessWidget {
   const _GroupMessagesPanel({
     required this.dark,
+    required this.repository,
     required this.messages,
     required this.activeUserId,
     required this.resolveSenderLabel,
   });
 
   final bool dark;
+  final SignalMessageRepository? repository;
   final List<_GroupMessageView> messages;
   final String activeUserId;
   final String Function(String userId) resolveSenderLabel;
@@ -2449,6 +2564,10 @@ class _GroupMessagesPanel extends StatelessWidget {
               itemBuilder: (context, index) {
                 final message = messages[index];
                 final outgoing = message.senderUserId == activeUserId;
+                final secureImage =
+                    SecureImageAttachmentPayload.tryParseFromPlaintext(
+                      message.body,
+                    );
 
                 return Align(
                   alignment: outgoing
@@ -2491,18 +2610,27 @@ class _GroupMessagesPanel extends StatelessWidget {
                                   ),
                             ),
                             const SizedBox(height: 4),
-                            Text(
-                              message.body,
-                              style: Theme.of(context).textTheme.bodyLarge
-                                  ?.copyWith(
-                                    color: outgoing
-                                        ? Colors.white
-                                        : dark
-                                        ? _textPrimaryDark
-                                        : _textPrimaryLight,
-                                    height: 1.35,
-                                  ),
-                            ),
+                            if (secureImage != null)
+                              EncryptedImageAttachmentView(
+                                key: ValueKey<String>(secureImage.attachmentId),
+                                repository: repository,
+                                payload: secureImage,
+                                dark: dark,
+                                outgoing: outgoing,
+                              )
+                            else
+                              Text(
+                                message.body,
+                                style: Theme.of(context).textTheme.bodyLarge
+                                    ?.copyWith(
+                                      color: outgoing
+                                          ? Colors.white
+                                          : dark
+                                          ? _textPrimaryDark
+                                          : _textPrimaryLight,
+                                      height: 1.35,
+                                    ),
+                              ),
                             const SizedBox(height: 6),
                             Text(
                               '${message.createdAt.hour.toString().padLeft(2, '0')}:${message.createdAt.minute.toString().padLeft(2, '0')}  ${message.deliveryState}',
@@ -2533,12 +2661,14 @@ class _GroupComposerBar extends StatelessWidget {
     required this.dark,
     required this.enabled,
     required this.onSend,
+    required this.onSendImage,
   });
 
   final TextEditingController controller;
   final bool dark;
   final bool enabled;
   final VoidCallback onSend;
+  final VoidCallback onSendImage;
 
   @override
   Widget build(BuildContext context) {
@@ -2551,6 +2681,11 @@ class _GroupComposerBar extends StatelessWidget {
       ),
       child: Row(
         children: <Widget>[
+          IconButton(
+            onPressed: enabled ? onSendImage : null,
+            tooltip: 'Send image',
+            icon: const Icon(Icons.image_outlined),
+          ),
           Expanded(
             child: TextField(
               controller: controller,
@@ -2733,7 +2868,6 @@ class _SettingsTab extends StatelessWidget {
                   ListTile(
                     leading: const Icon(Icons.devices_other_rounded),
                     title: Text(linkedAccount!.label),
-
                   ),
               ],
             ),
