@@ -17,7 +17,7 @@ service firebase.storage {
       allow read: if isConversationMember(conversationId);
       allow write: if isConversationMember(conversationId)
         && request.resource != null
-        && request.resource.size < 50 * 1024 * 1024;
+        && request.resource.size < 5 * 1024 * 1024;
     }
   }
 }

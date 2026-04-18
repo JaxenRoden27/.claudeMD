@@ -2,7 +2,6 @@ import 'dart:convert';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -10,7 +9,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import 'services/app_feature_services.dart';
 import 'auth/auth_service.dart';
-import 'firebase_options.dart';
+import 'signal/encrypted_image_attachment_view.dart';
 import 'signal/signal_fcm_coordinator.dart';
 import 'signal/signal_message_repository.dart';
 import 'signal/signal_models.dart';
@@ -106,6 +105,7 @@ class _SignalChatPageState extends State<SignalChatPage> {
     _forumComposerController.dispose();
     _groupNameController.dispose();
     _fcmCoordinator?.dispose();
+    _repository?.dispose();
     super.dispose();
   }
 
@@ -126,6 +126,24 @@ class _SignalChatPageState extends State<SignalChatPage> {
     await _localOptionsService.save(options);
   }
 
+  String _preferredProfileLabel() {
+    final displayName = widget.user.displayName?.trim();
+    if (displayName != null && displayName.isNotEmpty) {
+      return displayName;
+    }
+
+    final email = widget.user.email?.trim();
+    if (email != null && email.isNotEmpty) {
+      final atIndex = email.indexOf('@');
+      if (atIndex > 0) {
+        return email.substring(0, atIndex);
+      }
+      return email;
+    }
+
+    return 'User';
+  }
+
   Future<void> _initializeSignal() async {
     if (!widget.bootstrapState.firebaseReady) return;
 
@@ -142,8 +160,16 @@ class _SignalChatPageState extends State<SignalChatPage> {
       );
 
       // Register device if not already registered (local-only check inside registerCurrentDevice usually)
-      await repository.registerCurrentDevice();
+      await repository.registerCurrentDevice(
+        profileLabel: _preferredProfileLabel(),
+      );
 
+      if (!mounted) {
+        repository.dispose();
+        return;
+      }
+
+      _repository?.dispose();
       setState(() {
         _repository = repository;
         _activeUserId = widget.user.uid;
@@ -153,13 +179,18 @@ class _SignalChatPageState extends State<SignalChatPage> {
       await _bindForegroundWakeHandler();
       await _reloadLocalState();
     } catch (e) {
+      if (!mounted) {
+        return;
+      }
       setState(() {
         _status = 'Signal initialization failed: $e';
       });
     } finally {
-      setState(() {
-        _busy = false;
-      });
+      if (mounted) {
+        setState(() {
+          _busy = false;
+        });
+      }
     }
   }
 
@@ -171,7 +202,7 @@ class _SignalChatPageState extends State<SignalChatPage> {
     }
 
     _fcmCoordinator?.dispose();
-    final coordinator = SignalFcmCoordinator(
+    final   coordinator = SignalFcmCoordinator(
       firestore: FirebaseFirestore.instance,
     );
     await coordinator.initializeForeground(
@@ -305,10 +336,8 @@ class _SignalChatPageState extends State<SignalChatPage> {
   Future<void> _sendImageMessage() async {
     final repository = _repository;
     final peerUserId = _peerUserId;
-    final activeUserId = _activeUserId;
     if (repository == null ||
         peerUserId == null ||
-        activeUserId == null ||
         !widget.bootstrapState.firebaseReady) {
       return;
     }
@@ -329,24 +358,10 @@ class _SignalChatPageState extends State<SignalChatPage> {
 
     try {
       final bytes = await selected.readAsBytes();
-      final fileName =
-          '${DateTime.now().millisecondsSinceEpoch}_${selected.name}';
-      final storageRef = FirebaseStorage.instance
-          .ref()
-          .child('chat_uploads')
-          .child(activeUserId)
-          .child(fileName);
-
-      await storageRef.putData(
-        bytes,
-        SettableMetadata(
-          contentType: selected.mimeType ?? 'application/octet-stream',
-        ),
-      );
-      final imageUrl = await storageRef.getDownloadURL();
-      await repository.sendTextMessage(
+      await repository.sendEncryptedImageMessage(
         peerUserId: peerUserId,
-        plaintext: '[image] $imageUrl',
+        imageBytes: bytes,
+        mimeType: selected.mimeType ?? 'image/jpeg',
       );
       await _reloadLocalState();
       if (!mounted) {
@@ -360,7 +375,7 @@ class _SignalChatPageState extends State<SignalChatPage> {
         return;
       }
       setState(() {
-        _status = 'Image send failed: $error';
+        _status = _describeImageUploadError(error);
       });
     } finally {
       if (mounted) {
@@ -616,6 +631,7 @@ class _SignalChatPageState extends State<SignalChatPage> {
                           dark: dark,
                           user: widget.user,
                           peerUserId: _peerUserId!,
+                          repository: _repository,
                           trustRecords: _trustRecords,
                           messages: _messages,
                           composerController: _composerController,
@@ -714,6 +730,23 @@ class _SignalChatPageState extends State<SignalChatPage> {
       ),
     );
   }
+}
+
+String _describeImageUploadError(Object error) {
+  final raw = error.toString();
+  final lowered = raw.toLowerCase();
+  if (lowered.contains('terminated the upload session') ||
+      lowered.contains('object does not exist') ||
+      lowered.contains('not found')) {
+    return 'Image upload failed: Storage bucket/session not found. Verify Firebase Storage is enabled, bucket name is correct, and try again.';
+  }
+  if (lowered.contains('app check') || lowered.contains('appcheckprovider')) {
+    return 'Image upload blocked by App Check configuration. Install an App Check provider (or debug provider in dev).';
+  }
+  if (lowered.contains('permission') || lowered.contains('unauthorized')) {
+    return 'Image upload denied by Storage rules. Confirm conversation membership and auth state.';
+  }
+  return 'Image send failed: $error';
 }
 
 class _StatusCard extends StatelessWidget {
@@ -866,12 +899,14 @@ class _ConversationMetaCard extends StatelessWidget {
 class _MessagesPanel extends StatelessWidget {
   const _MessagesPanel({
     required this.dark,
+    required this.repository,
     required this.messages,
     required this.activeUserId,
     required this.peerLabel,
   });
 
   final bool dark;
+  final SignalMessageRepository? repository;
   final List<LocalChatMessage> messages;
   final String? activeUserId;
   final String peerLabel;
@@ -903,6 +938,10 @@ class _MessagesPanel extends StatelessWidget {
                 final message = messages[index];
                 final outgoing = message.senderUserId == activeUserId;
                 final imageUrl = _extractImageMessageUrl(message.plaintext);
+                final secureImage =
+                    SecureImageAttachmentPayload.tryParseFromPlaintext(
+                      message.plaintext,
+                    );
                 return Align(
                   alignment: outgoing
                       ? Alignment.centerRight
@@ -949,6 +988,14 @@ class _MessagesPanel extends StatelessWidget {
                                   height: 170,
                                   fit: BoxFit.cover,
                                 ),
+                              )
+                            else if (secureImage != null)
+                              EncryptedImageAttachmentView(
+                                key: ValueKey<String>(secureImage.attachmentId),
+                                repository: repository,
+                                payload: secureImage,
+                                dark: dark,
+                                outgoing: outgoing,
                               )
                             else
                               Text(
@@ -1004,6 +1051,16 @@ String? _extractImageMessageUrl(String plaintext) {
   }
 
   return candidate;
+}
+
+String _conversationSubtitleForMessage(String plaintext) {
+  if (_extractImageMessageUrl(plaintext) != null) {
+    return 'Image attachment';
+  }
+  if (SecureImageAttachmentPayload.tryParseFromPlaintext(plaintext) != null) {
+    return 'Encrypted image attachment';
+  }
+  return plaintext;
 }
 
 class _ComposerBar extends StatelessWidget {
@@ -1090,7 +1147,7 @@ class _ConversationsTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final subtitle = lastMessage == null
         ? 'No messages yet.'
-        : lastMessage!.plaintext;
+        : _conversationSubtitleForMessage(lastMessage!.plaintext);
     final timestamp = lastMessage == null
         ? 'now'
         : '${lastMessage!.createdAt.hour.toString().padLeft(2, '0')}:${lastMessage!.createdAt.minute.toString().padLeft(2, '0')}';
@@ -1178,6 +1235,7 @@ class _ChatDetailPage extends StatelessWidget {
     required this.dark,
     required this.user,
     required this.peerUserId,
+    required this.repository,
     required this.trustRecords,
     required this.messages,
     required this.composerController,
@@ -1193,6 +1251,7 @@ class _ChatDetailPage extends StatelessWidget {
   final bool dark;
   final User user;
   final String peerUserId;
+  final SignalMessageRepository? repository;
   final List<LocalTrustRecord> trustRecords;
   final List<LocalChatMessage> messages;
   final TextEditingController composerController;
@@ -1245,6 +1304,7 @@ class _ChatDetailPage extends StatelessWidget {
                   padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
                   child: _MessagesPanel(
                     dark: dark,
+                    repository: repository,
                     messages: messages,
                     activeUserId: user.uid,
                     peerLabel: 'Peer',
@@ -1629,7 +1689,7 @@ class _GroupsTab extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           StreamBuilder<List<AppGroup>>(
-            stream: appGroupsService.streamGroups(),
+            stream: appGroupsService.streamGroups(currentUserId: user.uid),
             builder: (context, snapshot) {
               if (snapshot.hasError) {
                 return Card(

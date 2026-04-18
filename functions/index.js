@@ -2,6 +2,7 @@
 
 const admin = require('firebase-admin');
 const { onDocumentCreated } = require('firebase-functions/v2/firestore');
+const { onSchedule } = require('firebase-functions/v2/scheduler');
 const { logger } = require('firebase-functions');
 
 admin.initializeApp();
@@ -127,5 +128,64 @@ exports.sendWakeSignalOnDeviceMessage = onDocumentCreated(
         error: String(error),
       });
     }
+  },
+);
+
+exports.cleanupExpiredAttachments = onSchedule(
+  {
+    schedule: 'every 24 hours',
+    region: 'us-central1',
+    timeZone: 'Etc/UTC',
+  },
+  async () => {
+    const now = admin.firestore.Timestamp.now();
+    const maxBatchSize = 200;
+    const expiredSnap = await admin
+      .firestore()
+      .collectionGroup('attachments')
+      .where('expiresAt', '<=', now)
+      .limit(maxBatchSize)
+      .get();
+
+    if (expiredSnap.empty) {
+      logger.info('No expired attachments found for cleanup');
+      return;
+    }
+
+    let deletedObjects = 0;
+    let deletedDocs = 0;
+    let storageErrors = 0;
+    const batch = admin.firestore().batch();
+    const bucket = admin.storage().bucket();
+
+    for (const doc of expiredSnap.docs) {
+      const data = doc.data() || {};
+      const storagePath = data.storagePath;
+
+      if (typeof storagePath === 'string' && storagePath.length > 0) {
+        try {
+          await bucket.file(storagePath).delete({ ignoreNotFound: true });
+          deletedObjects += 1;
+        } catch (error) {
+          storageErrors += 1;
+          logger.warn('Failed to delete attachment object', {
+            attachmentDocPath: doc.ref.path,
+            storagePath,
+            error: String(error),
+          });
+        }
+      }
+
+      batch.delete(doc.ref);
+      deletedDocs += 1;
+    }
+
+    await batch.commit();
+    logger.info('Expired attachment cleanup completed', {
+      scanned: expiredSnap.size,
+      deletedObjects,
+      deletedDocs,
+      storageErrors,
+    });
   },
 );

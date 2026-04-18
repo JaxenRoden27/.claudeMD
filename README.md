@@ -1,152 +1,162 @@
-# claude_md_final
+# Cipher Courier
 
-A new Flutter project.
+Spring 2026 Mobile App Development final project.
 
-## Getting Started
+Cipher Courier is a privacy-first mobile messaging app built with Flutter and Firebase. It combines a modern UX with an end-to-end encrypted messaging pipeline based on Signal-style device fanout, local secure key storage, and encrypted media attachments.
 
-This project is a starting point for a Flutter application.
+## Why This Project Stands Out
 
-A few resources to get you started if this is your first Flutter project:
+- End-to-end encrypted text and image messaging with per-device ciphertext fanout.
+- Zero-knowledge backend posture: Firebase stores routing metadata and ciphertext, not plaintext message bodies.
+- Security-forward architecture using local key material, trust records, and wake-only notifications.
+- Full-stack implementation across Flutter app, Firebase rules, Firestore schema, Storage, and Cloud Functions.
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+## Current Feature Set
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+### Authentication and Identity
 
-## Signal E2EE Integration (1-on-1)
+- Firebase Authentication with Email/Password and Google Sign-In.
+- Account registration and login flows with polished UI.
+- QR-based account linking to connect peers for secure chat.
 
-This project now includes a Signal Protocol integration suitable for WhatsApp-style
-1-on-1 E2EE with a zero-knowledge Firestore backend.
+### Secure Messaging
 
-### Added files
+- 1:1 secure conversations with deterministic direct conversation IDs.
+- Group messaging using encrypted fanout to each member device.
+- Signal-style key/session handling with local secure storage.
+- Local encrypted message persistence for conversation history.
 
-- `lib/signal/secure_signal_protocol_store.dart`
-- `lib/signal/signal_service.dart`
-- `lib/signal/signal_message_repository.dart`
-- `lib/signal/signal_fcm_coordinator.dart`
+### Encrypted Media Attachments
 
-### Security model
+- Image encryption on-device before upload.
+- Ciphertext stored in Firebase Storage under conversation-scoped paths.
+- Encrypted payload metadata carried inside secure message envelope.
+- Inline decrypted image previews in chat bubbles.
+- Tap-to-open full-screen image viewer with zoom/pan.
 
-- Firestore stores only public keys and ciphertext.
-- Private keys, sessions, prekeys, and ratchet state stay on-device in
-	`flutter_secure_storage`.
-- FCM is data-only and only wakes the app to fetch/decrypt locally.
+### Collaboration and Utility Features
 
-### Firestore schema used
+- Group creation and membership management.
+- Community forum posting stream.
+- Settings for sync behavior and camera preference.
+- Realtime inbox updates plus manual sync fallback.
 
-- `users/{userId}`
-	- `signal.registrationId`
-	- `signal.deviceId`
-	- `signal.identityKey`
-	- `signal.signedPreKey.{id,publicKey,signature,timestamp}`
-- `users/{userId}/preKeys/{preKeyId}`
-	- `preKeyId`
-	- `publicKey`
-	- `used`
-- `chats/{chatId}`
-	- `lastSequence`
-- `chats/{chatId}/messages/{messageId}`
-	- `sequence`
-	- `senderId`
-	- `recipientId`
-	- `senderDeviceId`
-	- `type`
-	- `ciphertext`
-	- `createdAt`
+### Backend and Ops
 
-### Message ordering requirement
+- Cloud Function to send wake-only push notifications when new encrypted device messages arrive.
+- Scheduled Cloud Function to clean up expired encrypted attachments.
+- Firestore and Storage rules aligned to conversation/group membership.
 
-Messages are written with a transaction-assigned `sequence` and read using
-`orderBy('sequence').orderBy('createdAt')` so the Double Ratchet never processes
-messages out of order.
+## Security and Privacy Model
 
-### Startup wiring
+- Message content and image bytes are encrypted client-side before upload.
+- Firestore stores ciphertext envelopes and routing metadata only.
+- Private keys, sessions, and ratchet state remain on-device.
+- Push notifications are data-only wake signals and do not include plaintext.
+- Attachment reads/writes are restricted by Storage rules to conversation members.
 
-- Firebase initializes with `DefaultFirebaseOptions.currentPlatform`.
-- Background handler is registered with:
-	`FirebaseMessaging.onBackgroundMessage(signalFcmBackgroundHandler)`.
-- A bootstrap page in `lib/main.dart` shows:
-	1. local key registration
-	2. first message encryption/send flow
+For full schema documentation, see [docs/firestore_schema.md](docs/firestore_schema.md).
 
-### Data-only FCM payload contract
+## Tech Stack
 
+- Flutter (Material 3)
+- Firebase Core / Auth / Firestore / Storage / Messaging / App Check
+- Cloud Functions for Firebase (Node.js 20)
+- libsignal_protocol_dart
+- flutter_secure_storage + sqflite
+- cryptography package (AES-GCM operations for attachments)
+
+## Project Structure
+
+```text
+lib/
+  auth/            # login/register/auth wrapper and auth service
+  chat/            # primary chat UI, groups, forums, settings tabs
+  signal/          # Signal protocol services, repositories, local secure store
+  services/        # app feature services (forums/groups/local options)
+  models/          # bootstrap and shared models
+functions/
+  index.js         # wake-notification and attachment cleanup functions
+docs/
+  firestore_schema.md
 ```
-{
-	"chatId": "chat_abc",
-	"messageId": "firestore_message_doc_id",
-	"localUserId": "current_device_user"
-}
+
+## Quick Start
+
+### 1. Prerequisites
+
+- Flutter SDK (Dart >= 3.10)
+- Android Studio / Android device or emulator
+- Firebase CLI
+- Node.js 20 (for functions)
+
+### 2. Install dependencies
+
+```bash
+flutter pub get
+cd functions && npm install
 ```
 
-No plaintext should be included in push payloads.
+### 3. Firebase project setup checklist
 
-## Current app architecture
+In Firebase Console for project `claude-md-final` (or your own project):
 
-The app now uses:
+1. Enable Authentication providers:
+   - Email/Password
+   - Google
+2. Create Firestore database.
+3. Set up Firebase Storage by clicking Get Started.
+4. Confirm Android app config is downloaded to `android/app/google-services.json`.
+5. (Recommended) Configure App Check:
+   - Debug provider for local testing.
+   - Register your debug token if App Check enforcement is enabled.
 
-- Firebase Auth email/password demo accounts for Alice and Bob
-- `users_private/{userId}` for private account metadata
-- `users_private/{userId}/device_routing/{deviceId}` for FCM routing tokens
-- `public_user_bundles/{userId}/devices/{deviceId}` for public Signal bundles
-- `conversations/{conversationId}/device_messages/{deliveryId}` for per-device ciphertext fanout
-- a local encrypted SQLite transcript store for decrypted messages and trust state
+### 4. Deploy rules and functions
 
-### Key files
+```bash
+firebase deploy --only firestore:rules,firestore:indexes,storage,functions
+```
 
-- `lib/signal/signal_service.dart`
-- `lib/signal/signal_message_repository.dart`
-- `lib/signal/signal_fcm_coordinator.dart`
-- `lib/signal/local_encrypted_chat_store.dart`
-- `functions/index.js`
+### 5. Run the app
 
-## Running the secure messaging demo
+```bash
+flutter run
+```
 
-### App setup
+## Demo Script for Final Presentation
 
-1. Run `flutter pub get`
-2. If using Cloud Functions wake fanout, run `npm install` inside `functions/`
-3. Deploy or emulate:
-   - Firestore rules and indexes
-   - Storage rules
-   - Functions
-4. Enable Email/Password sign-in in Firebase Authentication
-5. Start the Flutter app on Android for the most complete test path
+1. Sign in on two devices/accounts.
+2. Link peers using the QR flow.
+3. Send encrypted text from Device A to Device B.
+4. Send encrypted image from Device A.
+5. Show image preview in chat bubble on both sender and receiver.
+6. Tap image bubble to open full-screen preview.
+7. Create a group, add members, and send a group message.
+8. Explain wake-only FCM and ciphertext-only backend storage.
 
-### In-app test flow
+## Developer Commands
 
-1. Tap `Provision Both`
-2. With `Alice` selected, send a message to Bob
-3. Switch to `Bob`
-4. Tap `Sync Inbox` if FCM wake is unavailable in your environment
-5. Verify the message appears in Bob's local decrypted transcript
-6. Send a reply from Bob and switch back to Alice
+```bash
+flutter analyze
+flutter test
+flutter build apk --debug
+```
 
-### Wake-only FCM path
+Functions workspace commands:
 
-The backend function `sendWakeSignalOnDeviceMessage` watches:
+```bash
+cd functions
+npm run serve
+npm run deploy
+npm run logs
+```
 
-- `conversations/{conversationId}/device_messages/{deliveryId}`
+## Known Notes
 
-It reads the recipient device's routing token from:
+- Firebase options are currently configured for Android and Web targets.
+- If Storage uploads fail with App Check errors in debug, register the debug token or temporarily relax enforcement for local testing.
+- If push wake is unavailable in your environment, manual sync still supports message retrieval.
 
-- `users_private/{recipientUserId}/device_routing/{recipientDeviceId}`
+## Academic Context
 
-Then it sends a data-only FCM wake payload with:
-
-- `type`
-- `conversationId`
-- `deliveryId`
-- `recipientUserId`
-- `recipientDeviceId`
-
-No plaintext is included in the push payload.
-
-## Remaining deployment notes
-
-- For production, pair this with Firebase Auth and matching Firestore rules enforcement.
-- For local/manual testing, the app can still function with the `Sync Inbox` button even when FCM delivery is unavailable.
-- Background delivery depends on valid Android/iOS Firebase Messaging setup and deployed backend Functions.
+This repository is the final deliverable for a Spring 2026 Mobile App Development course, emphasizing secure systems design, full-stack mobile architecture, and production-style engineering practices.

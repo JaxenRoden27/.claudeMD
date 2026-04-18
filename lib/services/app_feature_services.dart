@@ -259,27 +259,101 @@ class ForumsService {
 class AppGroup {
   const AppGroup({
     required this.id,
+    required this.groupId,
     required this.name,
     required this.createdBy,
+    required this.ownerUserId,
     required this.createdAt,
     required this.memberCount,
+    required this.memberUserIds,
   });
 
   final String id;
+  final String groupId;
   final String name;
   final String createdBy;
+  final String ownerUserId;
   final DateTime createdAt;
   final int memberCount;
+  final List<String> memberUserIds;
+
+  bool isMember(String userId) => memberUserIds.contains(userId);
+
+  bool isOwner(String userId) => ownerUserId == userId;
+
+  bool canAddMembers(String userId) => isMember(userId);
+
+  bool canRemoveMembers(String userId) => isOwner(userId);
 
   factory AppGroup.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data() ?? const <String, dynamic>{};
     final ts = data['createdAt'];
+    final rawMemberIds = data['memberUserIds'] as List<dynamic>?;
+    final memberIds = (rawMemberIds ?? const <dynamic>[])
+        .whereType<String>()
+        .map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+
+    final ownerUserId = data['ownerUserId'] as String? ??
+        data['createdBy'] as String? ??
+        'unknown';
+
     return AppGroup(
       id: doc.id,
+      groupId: data['groupId'] as String? ?? doc.id,
       name: data['name'] as String? ?? 'Unnamed Group',
       createdBy: data['createdBy'] as String? ?? 'unknown',
+      ownerUserId: ownerUserId,
       createdAt: ts is Timestamp ? ts.toDate() : DateTime.now(),
-      memberCount: data['memberCount'] as int? ?? 0,
+      memberCount: data['memberCount'] as int? ?? memberIds.length,
+      memberUserIds: memberIds,
+    );
+  }
+}
+
+class AppGroupMember {
+  const AppGroupMember({required this.userId, required this.isOwner});
+
+  final String userId;
+  final bool isOwner;
+
+  String get roleLabel => isOwner ? 'Owner' : 'Participant';
+}
+
+class AppUserProfile {
+  const AppUserProfile({required this.userId, required this.label});
+
+  final String userId;
+  final String label;
+
+  factory AppUserProfile.fromPublicBundleDoc(
+    DocumentSnapshot<Map<String, dynamic>> doc,
+  ) {
+    final data = doc.data() ?? const <String, dynamic>{};
+    final userId = (data['userId'] as String?)?.trim();
+    final resolvedUserId =
+        (userId == null || userId.isEmpty) ? doc.id : userId;
+
+    String? preferredLabel;
+    for (final candidate in <String?>[
+      data['label'] as String?,
+      data['displayName'] as String?,
+      data['name'] as String?,
+    ]) {
+      final trimmed = candidate?.trim();
+      if (trimmed != null && trimmed.isNotEmpty) {
+        preferredLabel = trimmed;
+        break;
+      }
+    }
+
+    return AppUserProfile(
+      userId: resolvedUserId,
+      label: (preferredLabel == null || preferredLabel.isEmpty)
+          ? resolvedUserId
+          : preferredLabel,
     );
   }
 }
@@ -290,33 +364,178 @@ class AppGroupsService {
 
   final FirebaseFirestore _firestore;
 
-  Stream<List<AppGroup>> streamGroups({int limit = 30}) {
-    return _firestore
+  Stream<List<AppGroup>> streamGroups({
+    String? currentUserId,
+    int limit = 30,
+  }) {
+    Query<Map<String, dynamic>> query = _firestore
         .collection('app_groups')
-        .orderBy('createdAt', descending: true)
+        .limit(limit);
+
+    final trimmedUserId = currentUserId?.trim();
+    if (trimmedUserId != null && trimmedUserId.isNotEmpty) {
+      query = query.where('memberUserIds', arrayContains: trimmedUserId);
+    }
+
+    return query.snapshots().map((snap) {
+      final groups = snap.docs
+          .map((doc) => AppGroup.fromDoc(doc))
+          .toList(growable: false);
+      groups.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      return groups;
+    });
+  }
+
+  Stream<List<AppGroupMember>> streamGroupMembers({required String groupId}) {
+    return _firestore.collection('app_groups').doc(groupId).snapshots().map((doc) {
+      final data = doc.data() ?? const <String, dynamic>{};
+      final ownerUserId = data['ownerUserId'] as String? ??
+          data['createdBy'] as String? ??
+          '';
+      final rawMemberIds = data['memberUserIds'] as List<dynamic>?;
+      final memberIds = (rawMemberIds ?? const <dynamic>[])
+          .whereType<String>()
+          .map((value) => value.trim())
+          .where((value) => value.isNotEmpty)
+          .toSet()
+          .toList(growable: false)
+        ..sort();
+
+      return memberIds
+          .map(
+            (memberId) => AppGroupMember(
+              userId: memberId,
+              isOwner: memberId == ownerUserId,
+            ),
+          )
+          .toList(growable: false);
+    });
+  }
+
+  Stream<List<AppUserProfile>> streamAvailableUsers({int limit = 200}) {
+    return _firestore
+        .collection('public_user_bundles')
         .limit(limit)
         .snapshots()
-        .map(
-          (snap) => snap.docs
-              .map((doc) => AppGroup.fromDoc(doc))
-              .toList(growable: false),
-        );
+        .map((snap) {
+      final users = snap.docs
+          .map((doc) => AppUserProfile.fromPublicBundleDoc(doc))
+          .toList(growable: false);
+      users.sort(
+        (a, b) => a.label.toLowerCase().compareTo(b.label.toLowerCase()),
+      );
+      return users;
+    });
   }
 
   Future<void> createGroup({
     required String createdBy,
     required String name,
+    List<String> initialMemberUserIds = const <String>[],
   }) async {
     final trimmed = name.trim();
     if (trimmed.isEmpty) {
       throw StateError('Group name cannot be empty.');
     }
 
-    await _firestore.collection('app_groups').add(<String, dynamic>{
+    final initialMembers = <String>{
+      createdBy,
+      ...initialMemberUserIds
+          .map((value) => value.trim())
+          .where((value) => value.isNotEmpty),
+    }.toList(growable: false)
+      ..sort();
+
+    final groupRef = _firestore.collection('app_groups').doc();
+    await groupRef.set(<String, dynamic>{
+      'groupId': groupRef.id,
       'name': trimmed,
       'createdBy': createdBy,
+      'ownerUserId': createdBy,
       'createdAt': FieldValue.serverTimestamp(),
-      'memberCount': 1,
+      'updatedAt': FieldValue.serverTimestamp(),
+      'memberUserIds': initialMembers,
+      'memberCount': initialMembers.length,
+    });
+  }
+
+  Future<void> addMember({
+    required String groupId,
+    required String addedBy,
+    required String memberUserId,
+  }) async {
+    final trimmedMemberId = memberUserId.trim();
+    if (trimmedMemberId.isEmpty) {
+      throw StateError('Member user id cannot be empty.');
+    }
+
+    final groupRef = _firestore.collection('app_groups').doc(groupId);
+    await _firestore.runTransaction((tx) async {
+      final snap = await tx.get(groupRef);
+      if (!snap.exists) {
+        throw StateError('Group not found.');
+      }
+
+      final group = AppGroup.fromDoc(snap);
+      if (!group.canAddMembers(addedBy)) {
+        throw StateError('Only group members can add participants.');
+      }
+      if (group.memberUserIds.contains(trimmedMemberId)) {
+        return;
+      }
+
+      final updatedMembers = <String>{
+        ...group.memberUserIds,
+        trimmedMemberId,
+      }.toList(growable: false)
+        ..sort();
+
+      tx.update(groupRef, <String, dynamic>{
+        'memberUserIds': updatedMembers,
+        'memberCount': updatedMembers.length,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+    });
+  }
+
+  Future<void> removeMember({
+    required String groupId,
+    required String removedBy,
+    required String memberUserId,
+  }) async {
+    final trimmedMemberId = memberUserId.trim();
+    if (trimmedMemberId.isEmpty) {
+      throw StateError('Member user id cannot be empty.');
+    }
+
+    final groupRef = _firestore.collection('app_groups').doc(groupId);
+    await _firestore.runTransaction((tx) async {
+      final snap = await tx.get(groupRef);
+      if (!snap.exists) {
+        throw StateError('Group not found.');
+      }
+
+      final group = AppGroup.fromDoc(snap);
+      if (!group.isOwner(removedBy)) {
+        throw StateError('Only the group owner can remove participants.');
+      }
+      if (trimmedMemberId == group.ownerUserId) {
+        throw StateError('The owner cannot be removed from the group.');
+      }
+      if (!group.memberUserIds.contains(trimmedMemberId)) {
+        return;
+      }
+
+      final updatedMembers = group.memberUserIds
+          .where((id) => id != trimmedMemberId)
+          .toList(growable: false)
+        ..sort();
+
+      tx.update(groupRef, <String, dynamic>{
+        'memberUserIds': updatedMembers,
+        'memberCount': updatedMembers.length,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
     });
   }
 }
