@@ -12,6 +12,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import '../services/app_feature_services.dart';
 import '../auth/auth_service.dart';
 import '../models/app_bootstrap_state.dart';
+import '../signal/encrypted_image_attachment_view.dart';
 import '../signal/signal_fcm_coordinator.dart';
 import '../signal/signal_message_repository.dart';
 import '../signal/signal_models.dart';
@@ -902,6 +903,7 @@ class _ConversationMetaCard extends StatelessWidget {
 class _MessagesPanel extends StatelessWidget {
   const _MessagesPanel({
     required this.dark,
+    required this.repository,
     required this.messages,
     required this.activeUserId,
     required this.peerLabel,
@@ -909,6 +911,7 @@ class _MessagesPanel extends StatelessWidget {
   });
 
   final bool dark;
+  final SignalMessageRepository repository;
   final List<LocalChatMessage> messages;
   final String? activeUserId;
   final String peerLabel;
@@ -994,34 +997,12 @@ class _MessagesPanel extends StatelessWidget {
                                 ),
                               )
                             else if (secureImage != null)
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: <Widget>[
-                                  Icon(
-                                    Icons.image,
-                                    color: outgoing
-                                        ? Colors.white
-                                        : dark
-                                        ? _textPrimaryDark
-                                        : _textPrimaryLight,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Flexible(
-                                    child: Text(
-                                      'Encrypted image attachment',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodyLarge
-                                          ?.copyWith(
-                                            color: outgoing
-                                                ? Colors.white
-                                                : dark
-                                                ? _textPrimaryDark
-                                                : _textPrimaryLight,
-                                          ),
-                                    ),
-                                  ),
-                                ],
+                              EncryptedImageAttachmentView(
+                                key: ValueKey<String>(secureImage.attachmentId),
+                                repository: repository,
+                                payload: secureImage,
+                                dark: dark,
+                                outgoing: outgoing,
                               )
                             else
                               Text(
@@ -1436,6 +1417,7 @@ class _ChatDetailPageState extends State<_ChatDetailPage> {
                   padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
                   child: _MessagesPanel(
                     dark: widget.dark,
+                    repository: widget.repository,
                     messages: _messages,
                     activeUserId: widget.user.uid,
                     peerLabel: widget.peerLabel,
@@ -2498,6 +2480,7 @@ class _GroupDetailPageState extends State<_GroupDetailPage> {
                   padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
                   child: _GroupMessagesPanel(
                     dark: widget.dark,
+                    repository: widget.repository,
                     messages: _messages,
                     activeUserId: widget.user.uid,
                     resolveSenderLabel: _labelForUser,
@@ -2543,12 +2526,14 @@ class _GroupMessageView {
 class _GroupMessagesPanel extends StatelessWidget {
   const _GroupMessagesPanel({
     required this.dark,
+    required this.repository,
     required this.messages,
     required this.activeUserId,
     required this.resolveSenderLabel,
   });
 
   final bool dark;
+  final SignalMessageRepository? repository;
   final List<_GroupMessageView> messages;
   final String activeUserId;
   final String Function(String userId) resolveSenderLabel;
@@ -2579,6 +2564,10 @@ class _GroupMessagesPanel extends StatelessWidget {
               itemBuilder: (context, index) {
                 final message = messages[index];
                 final outgoing = message.senderUserId == activeUserId;
+                final secureImage =
+                    SecureImageAttachmentPayload.tryParseFromPlaintext(
+                      message.body,
+                    );
 
                 return Align(
                   alignment: outgoing
@@ -2621,39 +2610,13 @@ class _GroupMessagesPanel extends StatelessWidget {
                                   ),
                             ),
                             const SizedBox(height: 4),
-                            if (SecureImageAttachmentPayload.tryParseFromPlaintext(
-                                  message.body,
-                                ) !=
-                                null)
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: <Widget>[
-                                  Icon(
-                                    Icons.image,
-                                    color: outgoing
-                                        ? Colors.white
-                                        : dark
-                                        ? _textPrimaryDark
-                                        : _textPrimaryLight,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Flexible(
-                                    child: Text(
-                                      'Encrypted image attachment',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodyLarge
-                                          ?.copyWith(
-                                            color: outgoing
-                                                ? Colors.white
-                                                : dark
-                                                ? _textPrimaryDark
-                                                : _textPrimaryLight,
-                                            height: 1.35,
-                                          ),
-                                    ),
-                                  ),
-                                ],
+                            if (secureImage != null)
+                              EncryptedImageAttachmentView(
+                                key: ValueKey<String>(secureImage.attachmentId),
+                                repository: repository,
+                                payload: secureImage,
+                                dark: dark,
+                                outgoing: outgoing,
                               )
                             else
                               Text(

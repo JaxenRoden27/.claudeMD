@@ -9,6 +9,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 
 import 'services/app_feature_services.dart';
 import 'auth/auth_service.dart';
+import 'signal/encrypted_image_attachment_view.dart';
 import 'signal/signal_fcm_coordinator.dart';
 import 'signal/signal_message_repository.dart';
 import 'signal/signal_models.dart';
@@ -630,6 +631,7 @@ class _SignalChatPageState extends State<SignalChatPage> {
                           dark: dark,
                           user: widget.user,
                           peerUserId: _peerUserId!,
+                          repository: _repository,
                           trustRecords: _trustRecords,
                           messages: _messages,
                           composerController: _composerController,
@@ -897,12 +899,14 @@ class _ConversationMetaCard extends StatelessWidget {
 class _MessagesPanel extends StatelessWidget {
   const _MessagesPanel({
     required this.dark,
+    required this.repository,
     required this.messages,
     required this.activeUserId,
     required this.peerLabel,
   });
 
   final bool dark;
+  final SignalMessageRepository? repository;
   final List<LocalChatMessage> messages;
   final String? activeUserId;
   final String peerLabel;
@@ -986,34 +990,12 @@ class _MessagesPanel extends StatelessWidget {
                                 ),
                               )
                             else if (secureImage != null)
-                              Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: <Widget>[
-                                  Icon(
-                                    Icons.image,
-                                    color: outgoing
-                                        ? Colors.white
-                                        : dark
-                                        ? _textPrimaryDark
-                                        : _textPrimaryLight,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Flexible(
-                                    child: Text(
-                                      'Encrypted image attachment',
-                                      style: Theme.of(context)
-                                          .textTheme
-                                          .bodyLarge
-                                          ?.copyWith(
-                                            color: outgoing
-                                                ? Colors.white
-                                                : dark
-                                                ? _textPrimaryDark
-                                                : _textPrimaryLight,
-                                          ),
-                                    ),
-                                  ),
-                                ],
+                              EncryptedImageAttachmentView(
+                                key: ValueKey<String>(secureImage.attachmentId),
+                                repository: repository,
+                                payload: secureImage,
+                                dark: dark,
+                                outgoing: outgoing,
                               )
                             else
                               Text(
@@ -1253,6 +1235,7 @@ class _ChatDetailPage extends StatelessWidget {
     required this.dark,
     required this.user,
     required this.peerUserId,
+    required this.repository,
     required this.trustRecords,
     required this.messages,
     required this.composerController,
@@ -1268,6 +1251,7 @@ class _ChatDetailPage extends StatelessWidget {
   final bool dark;
   final User user;
   final String peerUserId;
+  final SignalMessageRepository? repository;
   final List<LocalTrustRecord> trustRecords;
   final List<LocalChatMessage> messages;
   final TextEditingController composerController;
@@ -1320,6 +1304,7 @@ class _ChatDetailPage extends StatelessWidget {
                   padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
                   child: _MessagesPanel(
                     dark: dark,
+                    repository: repository,
                     messages: messages,
                     activeUserId: user.uid,
                     peerLabel: 'Peer',

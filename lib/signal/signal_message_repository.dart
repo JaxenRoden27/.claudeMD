@@ -363,6 +363,20 @@ class SignalMessageRepository {
     );
   }
 
+  Future<Uint8List> downloadAndDecryptAttachment(
+    SecureImageAttachmentPayload payload,
+  ) async {
+    final expectedMaxBytes = max(
+      payload.sizePadded + 1024,
+      maxEncryptedImageBytes + 1024,
+    );
+    final ciphertextBytes = await _downloadCiphertextWithBucketFallback(
+      storagePath: payload.storagePath,
+      expectedMaxBytes: expectedMaxBytes,
+    );
+    return decryptAttachmentPayload(payload, ciphertextBytes);
+  }
+
   Future<int> syncPendingMessages({String? peerUserId}) async {
     try {
       final targetConversationId = peerUserId == null
@@ -781,6 +795,36 @@ class SignalMessageRepository {
     );
   }
 
+  Future<Uint8List> _downloadCiphertextWithBucketFallback({
+    required String storagePath,
+    required int expectedMaxBytes,
+  }) async {
+    Object? lastError;
+    final candidateInstances = _buildPreferredStorageInstances();
+
+    for (final storage in candidateInstances) {
+      try {
+        final bytes = await storage.ref(storagePath).getData(expectedMaxBytes);
+        if (bytes == null || bytes.isEmpty) {
+          throw StateError('Downloaded attachment is empty for $storagePath.');
+        }
+        return bytes;
+      } on FirebaseException catch (error) {
+        lastError = error;
+        if (!_shouldTryAnotherBucket(error)) {
+          rethrow;
+        }
+      }
+    }
+
+    if (lastError != null) {
+      throw lastError;
+    }
+    throw StateError(
+      'Attachment download failed before contacting Firebase Storage.',
+    );
+  }
+
   List<FirebaseStorage> _buildPreferredStorageInstances() {
     final app = Firebase.app();
     final configuredBucket = (app.options.storageBucket ?? '').trim();
@@ -841,16 +885,16 @@ class SignalMessageRepository {
         message.contains('operation was canceled');
   }
 
-        bool _isResumableSessionFailure(FirebaseException error) {
-          final code = error.code.toLowerCase();
-          final message = (error.message ?? '').toLowerCase();
-          return code.contains('object-not-found') ||
-          code.contains('canceled') ||
-          code.contains('cancelled') ||
-          message.contains('terminated the upload session') ||
-          message.contains('object does not exist at location') ||
-          message.contains('not found');
-        }
+  bool _isResumableSessionFailure(FirebaseException error) {
+    final code = error.code.toLowerCase();
+    final message = (error.message ?? '').toLowerCase();
+    return code.contains('object-not-found') ||
+        code.contains('canceled') ||
+        code.contains('cancelled') ||
+        message.contains('terminated the upload session') ||
+        message.contains('object does not exist at location') ||
+        message.contains('not found');
+  }
 
   int _padTo4KiB(int size) => ((size + 4095) ~/ 4096) * 4096;
 
