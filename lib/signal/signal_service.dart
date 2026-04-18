@@ -18,6 +18,8 @@ class SignalService {
   final FirebaseFirestore _firestore;
   final SecureSignalProtocolStore _signalStore;
 
+  SecureSignalProtocolStore get signalStore => _signalStore;
+
   static const String defaultDeviceId = '1';
   static const int defaultSignedPreKeyId = 1;
 

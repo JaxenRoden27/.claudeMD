@@ -221,8 +221,7 @@ class _ChatPageState extends State<ChatPage> {
     final allPeers = await repository.loadAllKnownPeers();
 
     if (peerUserId != null) {
-      messages = await repository.loadConversationMessages(peerUserId: peerUserId);
-      trustRecords = await repository.loadTrustState(peerUserId: peerUserId);
+      // Data handles by _ChatDetailPage if active
     }
 
     if (!mounted) return;
@@ -660,6 +659,55 @@ class _ChatPageState extends State<ChatPage> {
             onSync: widget.bootstrapState.firebaseReady && !_busy
                 ? _syncInbox
                 : null,
+            onDeleteConversation: (peer) async {
+              final conversationId = SignalMessageRepository.directConversationId(
+                widget.user.uid,
+                peer.userId,
+              );
+              await _repository?.deleteConversation(conversationId);
+              await _reloadLocalState();
+            },
+          ),
+          _ContactsTab(
+            dark: dark,
+            user: widget.user,
+            status: _status,
+            warning: widget.bootstrapState.warning,
+            busy: _busy,
+            peers: _allPeers,
+            onSync: widget.bootstrapState.firebaseReady && !_busy
+                ? _syncInbox
+                : null,
+            onScanQr: !_busy ? _scanAccountQr : null,
+            onShowQr: _showMyQrCode,
+            onRemoveContact: (peer) async {
+              await _repository?.removePeer(peer.userId);
+              await _reloadLocalState();
+            },
+            onOpenConversation: (LocalTrustRecord peer) {
+              setState(() {
+                _peerUserId = peer.userId;
+              });
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (context) => _ChatDetailPage(
+                    dark: dark,
+                    user: widget.user,
+                    peerUserId: peer.userId,
+                    peerLabel: peer.label ?? peer.userId,
+                    repository: _repository!,
+                    composerController: _composerController,
+                    busy: _busy,
+                    firebaseReady: widget.bootstrapState.firebaseReady,
+                    status: _status,
+                    warning: widget.bootstrapState.warning,
+                    onSend: _sendMessage,
+                    onSendImage: _sendImageMessage,
+                    onSync: _syncInbox,
+                  ),
+                ),
+              ).then((_) => _reloadLocalState());
+            },
           ),
           _ForumsTab(
             dark: dark,
@@ -735,6 +783,11 @@ class _ChatPageState extends State<ChatPage> {
             icon: Icon(Icons.forum_outlined),
             selectedIcon: Icon(Icons.forum_rounded),
             label: 'Chats',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.people_alt_outlined),
+            selectedIcon: Icon(Icons.people_alt_rounded),
+            label: 'Contacts',
           ),
           NavigationDestination(
             icon: Icon(Icons.question_answer_outlined),
@@ -1191,6 +1244,7 @@ class _ConversationsTab extends StatelessWidget {
     required this.peers,
     required this.onOpenConversation,
     required this.onSync,
+    required this.onDeleteConversation,
   });
 
   final bool dark;
@@ -1201,6 +1255,7 @@ class _ConversationsTab extends StatelessWidget {
   final List<LocalTrustRecord> peers;
   final void Function(LocalTrustRecord)? onOpenConversation;
   final VoidCallback? onSync;
+  final void Function(LocalTrustRecord) onDeleteConversation;
 
   @override
   Widget build(BuildContext context) {
@@ -1236,29 +1291,64 @@ class _ConversationsTab extends StatelessWidget {
               delegate: SliverChildBuilderDelegate(
                 (context, index) {
                   final peer = peers[index];
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(18),
+                  return Dismissible(
+                    key: Key('conv_${peer.userId}'),
+                    direction: DismissDirection.endToStart,
+                    confirmDismiss: (direction) async {
+                      return await showDialog<bool>(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text('Delete Conversation?'),
+                          content: const Text('This will permanently remove the local chat history with this peer.'),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.of(context).pop(false),
+                              child: const Text('Cancel'),
+                            ),
+                            TextButton(
+                              onPressed: () => Navigator.of(context).pop(true),
+                              style: TextButton.styleFrom(foregroundColor: _blazeOrange),
+                              child: const Text('Delete'),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                    onDismissed: (_) => onDeleteConversation(peer),
+                    background: Container(
+                      alignment: Alignment.centerRight,
+                      padding: const EdgeInsets.only(right: 20),
+                      margin: const EdgeInsets.only(bottom: 8),
+                      decoration: BoxDecoration(
+                        color: _blazeOrange.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: const Icon(Icons.delete_sweep_rounded, color: _blazeOrange),
                     ),
-                    child: ListTile(
-                      onTap: onOpenConversation != null ? () => onOpenConversation!(peer) : null,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 10,
+                    child: Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18),
                       ),
-                      leading: CircleAvatar(
-                        backgroundColor: _honeyBronze.withValues(alpha: 0.18),
-                        child: const Icon(Icons.person, color: _honeyBronze),
-                      ),
-                      title: Text(
-                        peer.label ?? 'Unknown Peer',
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      subtitle: Text(
-                        'Device: ${peer.deviceId}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                      child: ListTile(
+                        onTap: onOpenConversation != null ? () => onOpenConversation!(peer) : null,
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
+                        leading: CircleAvatar(
+                          backgroundColor: _honeyBronze.withValues(alpha: 0.18),
+                          child: const Icon(Icons.person, color: _honeyBronze),
+                        ),
+                        title: Text(
+                          peer.label ?? 'Unknown Peer',
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        subtitle: Text(
+                          'Device: ${peer.deviceId}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ),
                   );
@@ -2891,6 +2981,187 @@ class _GroupComposerBar extends StatelessWidget {
   }
 }
 
+class _ContactsTab extends StatelessWidget {
+  const _ContactsTab({
+    required this.dark,
+    required this.user,
+    required this.status,
+    required this.warning,
+    required this.busy,
+    required this.peers,
+    required this.onSync,
+    required this.onScanQr,
+    required this.onShowQr,
+    required this.onOpenConversation,
+    required this.onRemoveContact,
+  });
+
+  final bool dark;
+  final User user;
+  final String status;
+  final String? warning;
+  final bool busy;
+  final List<LocalTrustRecord> peers;
+  final VoidCallback? onSync;
+  final VoidCallback? onScanQr;
+  final VoidCallback? onShowQr;
+  final void Function(LocalTrustRecord) onOpenConversation;
+  final void Function(LocalTrustRecord) onRemoveContact;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: dark ? _bgDark : _bgLight,
+      child: CustomScrollView(
+        slivers: <Widget>[
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 10),
+            sliver: SliverList(
+              delegate: SliverChildListDelegate([
+                _StatusCard(
+                  status: status,
+                  busy: busy,
+                  dark: dark,
+                  warning: warning,
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  'Your Contacts',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: dark ? _textPrimaryDark : _textPrimaryLight,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Connected peers are shown here. Secure connections are end-to-end encrypted.',
+                  style: TextStyle(
+                    color: dark ? _textSecondaryDark : _textSecondaryLight,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: <Widget>[
+                    _ActionButton(
+                      label: 'New Connection',
+                      icon: Icons.qr_code_scanner_rounded,
+                      onPressed: onScanQr,
+                    ),
+                    _ActionButton(
+                      label: 'Share Profile',
+                      icon: Icons.qr_code_rounded,
+                      onPressed: onShowQr,
+                    ),
+                    _ActionButton(
+                      label: 'Sync',
+                      icon: Icons.sync_rounded,
+                      onPressed: onSync,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  'Direct Contacts',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                if (peers.isEmpty)
+                  Card(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(18),
+                    ),
+                    child: const ListTile(
+                      leading: Icon(Icons.people_outline_rounded),
+                      title: Text('No contacts found'),
+                      subtitle: Text('Scan a QR code to connect with someone.'),
+                    ),
+                  ),
+              ]),
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, index) {
+                  final peer = peers[index];
+                  return Dismissible(
+                    key: Key('contact_${peer.userId}'),
+                    direction: DismissDirection.endToStart,
+                    confirmDismiss: (direction) async {
+                      return await showDialog<bool>(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text('Remove Contact?'),
+                          content: const Text('This will remove the peer from your contacts and reset the secure session. Chat history will be preserved unless specifically deleted.'),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.of(context).pop(false),
+                              child: const Text('Cancel'),
+                            ),
+                            TextButton(
+                              onPressed: () => Navigator.of(context).pop(true),
+                              style: TextButton.styleFrom(foregroundColor: _blazeOrange),
+                              child: const Text('Remove'),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                    onDismissed: (_) => onRemoveContact(peer),
+                    background: Container(
+                      alignment: Alignment.centerRight,
+                      padding: const EdgeInsets.only(right: 20),
+                      margin: const EdgeInsets.only(bottom: 10),
+                      decoration: BoxDecoration(
+                        color: _blazeOrange.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: const Icon(Icons.person_remove_rounded, color: _blazeOrange),
+                    ),
+                    child: Card(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: ListTile(
+                        onTap: () => onOpenConversation(peer),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 12,
+                        ),
+                        leading: CircleAvatar(
+                          backgroundColor: _balticBlue.withValues(alpha: 0.1),
+                          child: const Icon(Icons.person, color: _balticBlue),
+                        ),
+                        title: Text(
+                          peer.label ?? 'Unknown Peer',
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                        subtitle: Text(
+                          'Device: ${peer.deviceId}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        trailing: const Icon(Icons.chat_bubble_outline_rounded),
+                      ),
+                    ),
+                  );
+                },
+                childCount: peers.length,
+              ),
+            ),
+          ),
+          const SliverToBoxAdapter(child: SizedBox(height: 40)),
+        ],
+      ),
+    );
+  }
+}
 class _SettingsTab extends StatelessWidget {
   const _SettingsTab({
     required this.dark,
@@ -2991,16 +3262,6 @@ class _SettingsTab extends StatelessWidget {
                 label: 'Sync',
                 icon: Icons.sync_rounded,
                 onPressed: onSync,
-              ),
-              _ActionButton(
-                label: 'Scan Peer QR',
-                icon: Icons.qr_code_scanner_rounded,
-                onPressed: onScanQr,
-              ),
-              _ActionButton(
-                label: 'Show My QR',
-                icon: Icons.qr_code_rounded,
-                onPressed: onShowQr,
               ),
             ],
           ),

@@ -298,4 +298,23 @@ class LocalEncryptedChatStore {
         )
         .toList(growable: false);
   }
+
+  Future<void> deleteTrustRecord(String userId, String deviceId) async {
+    final db = await _openDatabase();
+    final addressKey = '$userId|$deviceId';
+    await db.delete(
+      'trust_state',
+      where: 'address_key = ?',
+      whereArgs: <Object?>[addressKey],
+    );
+  }
+
+  Future<void> deleteConversationMessages(String conversationId) async {
+    final db = await _openDatabase();
+    await db.delete(
+      'messages',
+      where: 'conversation_id = ?',
+      whereArgs: <Object?>[conversationId],
+    );
+  }
 }
