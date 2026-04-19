@@ -932,6 +932,21 @@ class SignalMessageRepository {
         .get();
   }
 
+  Future<void> removePeer(String userId) async {
+    final bundles = await _signalService.fetchActiveDeviceBundles(userId: userId);
+    for (final bundle in bundles) {
+      await _localStore.deleteTrustRecord(userId, bundle.deviceId);
+    }
+    // Also clear cryptographic sessions for this user's devices
+    await _signalService.signalStore.deleteAllSessions(userId);
+    _inboxUpdatesController.add(null);
+  }
+
+  Future<void> deleteConversation(String conversationId) async {
+    await _localStore.deleteConversationMessages(conversationId);
+    _inboxUpdatesController.add(null);
+  }
+
   Future<T> _runStep<T>(String label, Future<T> Function() action) async {
     try {
       return await action();
