@@ -199,11 +199,15 @@ class SignalService {
         .where('status', isEqualTo: 'active')
         .get();
 
+    final userSnap = await _publicBundles.doc(userId).get();
+    final userLabel = userSnap.data()?['label'] as String?;
+
     final bundles = snap.docs
         .map(
           (doc) => SignalDeviceBundle.fromFirestore(
             userId,
             doc.data(),
+            userLabel: userLabel,
           ),
         )
         .toList(growable: false);
@@ -216,13 +220,20 @@ class SignalService {
     required String userId,
     required String deviceId,
   }) async {
+    final userSnap = await _publicBundles.doc(userId).get();
+    final userLabel = userSnap.data()?['label'] as String?;
+
     final snap = await _deviceRef(userId, deviceId).get();
     final data = snap.data();
     if (data == null) {
       throw StateError('The requested device bundle does not exist.');
     }
 
-    return SignalDeviceBundle.fromFirestore(userId, data);
+    return SignalDeviceBundle.fromFirestore(
+      userId,
+      data,
+      userLabel: userLabel,
+    );
   }
 
   Future<PreKeyBundle> fetchAndConsumePreKeyBundle({

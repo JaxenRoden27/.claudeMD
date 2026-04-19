@@ -67,6 +67,7 @@ class _ChatPageState extends State<ChatPage> {
   AccountQrPayload? _linkedAccount;
 
   List<LocalTrustRecord> _allPeers = const <LocalTrustRecord>[];
+  List<LocalTrustRecord> _peersWithChats = const <LocalTrustRecord>[];
   LocalOptions _localOptions = LocalOptions.defaults;
 
   int _selectedTabIndex = 0;
@@ -219,6 +220,7 @@ class _ChatPageState extends State<ChatPage> {
 
     final peerUserId = _peerUserId;
     final allPeers = await repository.loadAllKnownPeers();
+    final peersWithChats = await repository.loadPeersWithMessages();
 
     if (peerUserId != null) {
       // Data handles by _ChatDetailPage if active
@@ -228,6 +230,7 @@ class _ChatPageState extends State<ChatPage> {
 
     setState(() {
       _allPeers = allPeers;
+      _peersWithChats = peersWithChats;
     });
   }
 
@@ -249,6 +252,12 @@ class _ChatPageState extends State<ChatPage> {
 
     try {
       final imported = await repository.syncPendingMessages(peerUserId: null);
+      if (mounted) {
+        setState(() {
+          _status = 'Repairing contact signatures and names...';
+        });
+      }
+      await repository.refreshAllPeerLabels();
       await _reloadLocalState();
       if (!mounted) {
         return;
@@ -631,7 +640,7 @@ class _ChatPageState extends State<ChatPage> {
             status: _status,
             warning: widget.bootstrapState.warning,
             busy: _busy,
-            peers: _allPeers,
+            peers: _peersWithChats,
             onOpenConversation: (LocalTrustRecord peer) {
               setState(() {
                 _peerUserId = peer.userId;
@@ -661,7 +670,7 @@ class _ChatPageState extends State<ChatPage> {
                 : null,
             onDeleteConversation: (peer) {
               setState(() {
-                _allPeers = _allPeers.where((p) => p.userId != peer.userId).toList();
+                _peersWithChats = _peersWithChats.where((p) => p.userId != peer.userId).toList();
               });
               unawaited(() async {
                 final conversationId = SignalMessageRepository.directConversationId(

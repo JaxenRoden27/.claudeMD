@@ -3,6 +3,9 @@ import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 const secureImageMessagePrefix = '[image-secure-v1] ';
+const controlMessagePrefix = '[control:v1:';
+const controlRemoveConnection = 'remove_connection]';
+const controlRemoveConnectionFull = '$controlMessagePrefix$controlRemoveConnection';
 
 class SignalEncryptedEnvelope {
   SignalEncryptedEnvelope({
@@ -42,6 +45,7 @@ class SignalDeviceBundle {
     required this.signedPreKeySignatureBase64,
     required this.preKeyCount,
     required this.status,
+    this.userLabel,
   });
 
   final String userId;
@@ -53,13 +57,15 @@ class SignalDeviceBundle {
   final String signedPreKeySignatureBase64;
   final int preKeyCount;
   final String status;
+  final String? userLabel;
 
   int get numericDeviceId => int.parse(deviceId);
 
   factory SignalDeviceBundle.fromFirestore(
     String userId,
-    Map<String, dynamic> data,
-  ) {
+    Map<String, dynamic> data, {
+    String? userLabel,
+  }) {
     final signedPreKey = data['signedPreKey'] as Map<String, dynamic>;
     return SignalDeviceBundle(
       userId: userId,
@@ -71,6 +77,7 @@ class SignalDeviceBundle {
       signedPreKeySignatureBase64: signedPreKey['signature'] as String,
       preKeyCount: data['preKeyCount'] as int? ?? 0,
       status: data['status'] as String? ?? 'active',
+      userLabel: userLabel,
     );
   }
 }

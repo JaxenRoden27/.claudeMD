@@ -317,4 +317,35 @@ class LocalEncryptedChatStore {
       whereArgs: <Object?>[conversationId],
     );
   }
+
+  Future<List<LocalTrustRecord>> loadPeersWithMessages() async {
+    final db = await _openDatabase();
+    // Query peers who have at least one message in the messages table
+    final rows = await db.rawQuery('''
+      SELECT ts.* FROM trust_state ts
+      WHERE EXISTS (
+        SELECT 1 FROM messages m 
+        WHERE m.sender_user_id = ts.user_id OR m.recipient_user_id = ts.user_id
+      )
+      ORDER BY ts.last_seen_at_millis DESC
+    ''');
+
+    return rows
+        .map(
+          (row) => LocalTrustRecord(
+            userId: row['user_id'] as String,
+            deviceId: row['device_id'] as String,
+            identityKeyHash: row['identity_key_hash'] as String,
+            verified: (row['verified'] as int) == 1,
+            firstSeenAt: DateTime.fromMillisecondsSinceEpoch(
+              row['first_seen_at_millis'] as int,
+            ),
+            lastSeenAt: DateTime.fromMillisecondsSinceEpoch(
+              row['last_seen_at_millis'] as int,
+            ),
+            label: row['label'] as String?,
+          ),
+        )
+        .toList(growable: false);
+  }
 }
