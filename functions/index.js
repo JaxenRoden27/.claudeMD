@@ -7,6 +7,71 @@ const { logger } = require('firebase-functions');
 
 admin.initializeApp();
 
+const RETRYABLE_FCM_CODES = new Set([
+  'messaging/internal-error',
+  'messaging/server-unavailable',
+  'messaging/unknown-error',
+  'messaging/message-rate-exceeded',
+]);
+
+function extractFcmErrorCode(error) {
+  if (!error) {
+    return '';
+  }
+
+  if (typeof error.code === 'string' && error.code.length > 0) {
+    return error.code;
+  }
+
+  if (
+    error.errorInfo &&
+    typeof error.errorInfo.code === 'string' &&
+    error.errorInfo.code.length > 0
+  ) {
+    return error.errorInfo.code;
+  }
+
+  return '';
+}
+
+function isRetryableFcmError(error) {
+  const code = extractFcmErrorCode(error);
+  return RETRYABLE_FCM_CODES.has(code);
+}
+
+function isInvalidTokenError(error) {
+  const code = extractFcmErrorCode(error);
+  return (
+    code === 'messaging/registration-token-not-registered' ||
+    code === 'messaging/invalid-registration-token'
+  );
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function sendWithRetry(payload, maxAttempts = 3) {
+  let attempt = 0;
+  let lastError;
+
+  while (attempt < maxAttempts) {
+    attempt += 1;
+    try {
+      await admin.messaging().send(payload);
+      return { attempt };
+    } catch (error) {
+      lastError = error;
+      if (!isRetryableFcmError(error) || attempt >= maxAttempts) {
+        break;
+      }
+      await delay(250 * 2 ** attempt);
+    }
+  }
+
+  throw lastError;
+}
+
 exports.sendWakeSignalOnDeviceMessage = onDocumentCreated(
   {
     document: 'conversations/{conversationId}/device_messages/{deliveryId}',
@@ -25,6 +90,8 @@ exports.sendWakeSignalOnDeviceMessage = onDocumentCreated(
 
     const conversationId = event.params.conversationId;
     const deliveryId = event.params.deliveryId;
+    const senderUserId = message.senderUserId;
+    const messageType = message.messageType;
     const recipientUserId = message.recipientUserId;
     const recipientDeviceId = message.recipientDeviceId;
 
@@ -32,6 +99,16 @@ exports.sendWakeSignalOnDeviceMessage = onDocumentCreated(
       logger.warn('Missing routing target on device message', {
         conversationId,
         deliveryId,
+      });
+      return;
+    }
+
+    if (senderUserId && recipientUserId === senderUserId) {
+      logger.info('Skipping self-notification for sender device message', {
+        conversationId,
+        deliveryId,
+        recipientUserId,
+        recipientDeviceId,
       });
       return;
     }
@@ -93,6 +170,8 @@ exports.sendWakeSignalOnDeviceMessage = onDocumentCreated(
         type: 'new_message',
         conversationId,
         deliveryId,
+        senderUserId: senderUserId || '',
+        messageType: messageType || 'text',
         recipientUserId,
         recipientDeviceId,
       },
@@ -112,14 +191,35 @@ exports.sendWakeSignalOnDeviceMessage = onDocumentCreated(
     };
 
     try {
-      await admin.messaging().send(payload);
+      const result = await sendWithRetry(payload);
       logger.info('Wake signal sent', {
         conversationId,
         deliveryId,
         recipientUserId,
         recipientDeviceId,
+        attempt: result.attempt,
       });
     } catch (error) {
+      if (isInvalidTokenError(error)) {
+        try {
+          await routingRef.delete();
+          logger.info('Removed stale routing token after send failure', {
+            conversationId,
+            deliveryId,
+            recipientUserId,
+            recipientDeviceId,
+          });
+        } catch (deleteError) {
+          logger.warn('Failed to remove stale routing token', {
+            conversationId,
+            deliveryId,
+            recipientUserId,
+            recipientDeviceId,
+            error: String(deleteError),
+          });
+        }
+      }
+
       logger.error('Failed to send wake signal', {
         conversationId,
         deliveryId,

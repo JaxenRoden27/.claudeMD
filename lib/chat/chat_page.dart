@@ -16,6 +16,7 @@ import '../signal/encrypted_image_attachment_view.dart';
 import '../signal/signal_fcm_coordinator.dart';
 import '../signal/signal_message_repository.dart';
 import '../signal/signal_models.dart';
+import '../signal/signal_notification_service.dart';
 import '../signal/signal_service.dart';
 import '../dev/developer_blackjack_page.dart';
 
@@ -62,9 +63,12 @@ class _ChatPageState extends State<ChatPage> {
   SignalMessageRepository? _repository;
   SignalFcmCoordinator? _fcmCoordinator;
   StreamSubscription<void>? _repositoryInboxSubscription;
+  StreamSubscription<SignalNotificationRoute>? _notificationTapSubscription;
   String? _activeUserId;
   String? _peerUserId;
   AccountQrPayload? _linkedAccount;
+  SignalNotificationRoute? _pendingNotificationRoute;
+  bool _openingConversationFromNotification = false;
 
   List<LocalTrustRecord> _allPeers = const <LocalTrustRecord>[];
   LocalOptions _localOptions = LocalOptions.defaults;
@@ -81,6 +85,15 @@ class _ChatPageState extends State<ChatPage> {
         'Welcome, ${widget.user.displayName ?? widget.user.email ?? 'User'}.';
     _activeUserId = widget.user.uid;
     _loadLocalOptions();
+
+    _notificationTapSubscription = SignalNotificationService.instance.tapRoutes
+        .listen(_handleNotificationRoute);
+    final initialTapRoute = SignalNotificationService.instance
+        .takeInitialTapRoute();
+    if (initialTapRoute != null) {
+      _pendingNotificationRoute = initialTapRoute;
+    }
+
     _initializeSignal();
   }
 
@@ -89,6 +102,7 @@ class _ChatPageState extends State<ChatPage> {
     _composerController.dispose();
     _forumComposerController.dispose();
     _repositoryInboxSubscription?.cancel();
+    _notificationTapSubscription?.cancel();
     _fcmCoordinator?.dispose();
     _repository?.dispose();
     super.dispose();
@@ -127,6 +141,100 @@ class _ChatPageState extends State<ChatPage> {
     }
 
     return 'User';
+  }
+
+  void _handleNotificationRoute(SignalNotificationRoute route) {
+    _pendingNotificationRoute = route;
+    unawaited(_consumePendingNotificationRoute());
+  }
+
+  Future<void> _consumePendingNotificationRoute() async {
+    if (!mounted || _repository == null || _openingConversationFromNotification) {
+      return;
+    }
+
+    final route = _pendingNotificationRoute;
+    if (route == null) {
+      return;
+    }
+
+    _pendingNotificationRoute = null;
+    _openingConversationFromNotification = true;
+    try {
+      await _openConversationForPeer(peerUserId: route.peerUserId);
+    } finally {
+      _openingConversationFromNotification = false;
+    }
+  }
+
+  Future<void> _openConversationForPeer({
+    required String peerUserId,
+    String? preferredLabel,
+  }) async {
+    final repository = _repository;
+    if (!mounted || repository == null) {
+      return;
+    }
+
+    setState(() {
+      _peerUserId = peerUserId;
+      _selectedTabIndex = 0;
+    });
+
+    final trustRecords = await repository.loadTrustState(peerUserId: peerUserId);
+    final peerLabel = _resolvePeerLabel(
+      preferredLabel: preferredLabel,
+      trustRecords: trustRecords,
+      fallbackUserId: peerUserId,
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (context) => _ChatDetailPage(
+          dark: Theme.of(context).brightness == Brightness.dark,
+          user: widget.user,
+          peerUserId: peerUserId,
+          peerLabel: peerLabel,
+          repository: repository,
+          composerController: _composerController,
+          busy: _busy,
+          firebaseReady: widget.bootstrapState.firebaseReady,
+          status: _status,
+          warning: widget.bootstrapState.warning,
+          onSend: _sendMessage,
+          onSendImage: _sendImageMessage,
+          onSync: _syncInbox,
+        ),
+      ),
+    );
+
+    if (mounted) {
+      await _reloadLocalState();
+    }
+  }
+
+  String _resolvePeerLabel({
+    required String? preferredLabel,
+    required List<LocalTrustRecord> trustRecords,
+    required String fallbackUserId,
+  }) {
+    final preferred = preferredLabel?.trim();
+    if (preferred != null && preferred.isNotEmpty) {
+      return preferred;
+    }
+
+    for (final record in trustRecords) {
+      final candidate = record.label?.trim();
+      if (candidate != null && candidate.isNotEmpty) {
+        return candidate;
+      }
+    }
+
+    return fallbackUserId;
   }
 
   Future<void> _initializeSignal() async {
@@ -169,6 +277,7 @@ class _ChatPageState extends State<ChatPage> {
 
       await _bindForegroundWakeHandler();
       await _reloadLocalState();
+      await _consumePendingNotificationRoute();
     } catch (e) {
       if (!mounted) {
         return;
@@ -209,6 +318,9 @@ class _ChatPageState extends State<ChatPage> {
           _status = 'New encrypted message received.';
         });
       },
+      onNotificationOpened: (route) async {
+        _handleNotificationRoute(route);
+      },
     );
     _fcmCoordinator = coordinator;
   }
@@ -217,13 +329,7 @@ class _ChatPageState extends State<ChatPage> {
     final repository = _repository;
     if (repository == null) return;
 
-    final peerUserId = _peerUserId;
     final allPeers = await repository.loadAllKnownPeers();
-
-    if (peerUserId != null) {
-      messages = await repository.loadConversationMessages(peerUserId: peerUserId);
-      trustRecords = await repository.loadTrustState(peerUserId: peerUserId);
-    }
 
     if (!mounted) return;
 
@@ -634,28 +740,10 @@ class _ChatPageState extends State<ChatPage> {
             busy: _busy,
             peers: _allPeers,
             onOpenConversation: (LocalTrustRecord peer) {
-              setState(() {
-                _peerUserId = peer.userId;
-              });
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (context) => _ChatDetailPage(
-                    dark: dark,
-                    user: widget.user,
-                    peerUserId: peer.userId,
-                    peerLabel: peer.label ?? peer.userId,
-                    repository: _repository!,
-                    composerController: _composerController,
-                    busy: _busy,
-                    firebaseReady: widget.bootstrapState.firebaseReady,
-                    status: _status,
-                    warning: widget.bootstrapState.warning,
-                    onSend: _sendMessage,
-                    onSendImage: _sendImageMessage,
-                    onSync: _syncInbox,
-                  ),
-                ),
-              ).then((_) => _reloadLocalState());
+              _openConversationForPeer(
+                peerUserId: peer.userId,
+                preferredLabel: peer.label,
+              );
             },
             onSync: widget.bootstrapState.firebaseReady && !_busy
                 ? _syncInbox

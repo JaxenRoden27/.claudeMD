@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import '../firebase_options.dart';
 import 'signal_message_repository.dart';
 import 'signal_models.dart';
+import 'signal_notification_service.dart';
 import 'signal_service.dart';
 
 class SignalFcmCoordinator {
@@ -24,9 +25,34 @@ class SignalFcmCoordinator {
     required String localDeviceId,
     required SignalMessageRepository repository,
     required Future<void> Function(LocalChatMessage message) onMessageSynced,
+    required Future<void> Function(SignalNotificationRoute route)
+    onNotificationOpened,
   }) async {
     await _messaging.requestPermission(alert: true, badge: true, sound: true);
     await _registerRoutingToken(repository);
+
+    final initialMessage = await _messaging.getInitialMessage();
+    if (initialMessage != null) {
+      final synced = await _syncWakeSignal(
+        firestore: firestore,
+        localUserId: localUserId,
+        localDeviceId: localDeviceId,
+        data: initialMessage.data,
+        repository: repository,
+      );
+      if (synced != null) {
+        await onMessageSynced(synced);
+      }
+
+      final route = SignalNotificationRoute.fromRemoteData(
+        data: initialMessage.data,
+        localUserId: localUserId,
+        fallbackMessage: synced,
+      );
+      if (route != null) {
+        await onNotificationOpened(route);
+      }
+    }
 
     _subscriptions.add(
       FirebaseMessaging.onMessage.listen((message) async {
@@ -35,8 +61,14 @@ class SignalFcmCoordinator {
           localUserId: localUserId,
           localDeviceId: localDeviceId,
           data: message.data,
+          repository: repository,
         );
         if (synced != null) {
+          await SignalNotificationService.instance.showIncomingMessageNotification(
+            localUserId: localUserId,
+            message: synced,
+            repository: repository,
+          );
           await onMessageSynced(synced);
         }
       }),
@@ -49,9 +81,19 @@ class SignalFcmCoordinator {
           localUserId: localUserId,
           localDeviceId: localDeviceId,
           data: message.data,
+          repository: repository,
         );
         if (synced != null) {
           await onMessageSynced(synced);
+        }
+
+        final route = SignalNotificationRoute.fromRemoteData(
+          data: message.data,
+          localUserId: localUserId,
+          fallbackMessage: synced,
+        );
+        if (route != null) {
+          await onNotificationOpened(route);
         }
       }),
     );
@@ -105,6 +147,7 @@ Future<LocalChatMessage?> _syncWakeSignal({
   required String localUserId,
   required String localDeviceId,
   required Map<String, dynamic> data,
+  SignalMessageRepository? repository,
 }) async {
   if (data['type'] != 'new_message') {
     return null;
@@ -122,12 +165,14 @@ Future<LocalChatMessage?> _syncWakeSignal({
     return null;
   }
 
-  final repository = SignalMessageRepository.forLocalDevice(
-    firestore: firestore,
-    localUserId: localUserId,
-    localDeviceId: localDeviceId,
-  );
-  return repository.syncSingleDelivery(
+  final resolvedRepository =
+      repository ??
+      SignalMessageRepository.forLocalDevice(
+        firestore: firestore,
+        localUserId: localUserId,
+        localDeviceId: localDeviceId,
+      );
+  return resolvedRepository.syncSingleDelivery(
     conversationId: conversationId,
     deliveryId: deliveryId,
   );
@@ -136,6 +181,7 @@ Future<LocalChatMessage?> _syncWakeSignal({
 @pragma('vm:entry-point')
 Future<void> signalFcmBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await SignalNotificationService.instance.initializeBackground();
 
   final localUserId = message.data['recipientUserId'] as String?;
   final localDeviceId =
@@ -144,10 +190,25 @@ Future<void> signalFcmBackgroundHandler(RemoteMessage message) async {
     return;
   }
 
-  await _syncWakeSignal(
+  final repository = SignalMessageRepository.forLocalDevice(
+    firestore: FirebaseFirestore.instance,
+    localUserId: localUserId,
+    localDeviceId: localDeviceId,
+  );
+
+  final synced = await _syncWakeSignal(
     firestore: FirebaseFirestore.instance,
     localUserId: localUserId,
     localDeviceId: localDeviceId,
     data: message.data,
+    repository: repository,
   );
+
+  if (synced != null) {
+    await SignalNotificationService.instance.showIncomingMessageNotification(
+      localUserId: localUserId,
+      message: synced,
+      repository: repository,
+    );
+  }
 }

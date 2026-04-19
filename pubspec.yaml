@@ -51,6 +51,7 @@ dependencies:
   cryptography: ^2.7.0
   shared_preferences: ^2.3.3
   qr_flutter: ^4.1.0
+  flutter_local_notifications: ^18.0.1
 
 
 dev_dependencies:
