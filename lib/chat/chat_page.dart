@@ -659,13 +659,18 @@ class _ChatPageState extends State<ChatPage> {
             onSync: widget.bootstrapState.firebaseReady && !_busy
                 ? _syncInbox
                 : null,
-            onDeleteConversation: (peer) async {
-              final conversationId = SignalMessageRepository.directConversationId(
-                widget.user.uid,
-                peer.userId,
-              );
-              await _repository?.deleteConversation(conversationId);
-              await _reloadLocalState();
+            onDeleteConversation: (peer) {
+              setState(() {
+                _allPeers = _allPeers.where((p) => p.userId != peer.userId).toList();
+              });
+              unawaited(() async {
+                final conversationId = SignalMessageRepository.directConversationId(
+                  widget.user.uid,
+                  peer.userId,
+                );
+                await _repository?.deleteConversation(conversationId);
+                await _reloadLocalState();
+              }());
             },
           ),
           _ContactsTab(
@@ -680,9 +685,14 @@ class _ChatPageState extends State<ChatPage> {
                 : null,
             onScanQr: !_busy ? _scanAccountQr : null,
             onShowQr: _showMyQrCode,
-            onRemoveContact: (peer) async {
-              await _repository?.removePeer(peer.userId);
-              await _reloadLocalState();
+            onRemoveContact: (peer) {
+              setState(() {
+                _allPeers = _allPeers.where((p) => p.userId != peer.userId).toList();
+              });
+              unawaited(() async {
+                await _repository?.removePeer(peer.userId);
+                await _reloadLocalState();
+              }());
             },
             onOpenConversation: (LocalTrustRecord peer) {
               setState(() {
