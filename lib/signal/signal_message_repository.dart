@@ -506,6 +506,10 @@ class SignalMessageRepository {
     return _localStore.loadAllKnownPeers();
   }
 
+  Future<List<LocalTrustRecord>> loadPeersWithMessages() {
+    return _localStore.loadPeersWithMessages();
+  }
+
   Future<void> ensurePeerTrust({
     required String peerUserId,
     required String label,
@@ -530,17 +534,29 @@ class SignalMessageRepository {
       return false;
     }
 
+    // 1. Decrypt first to see what kind of message it is
+    final plaintext = (await _signalService.decryptEnvelope(
+      senderUserId: record.senderUserId,
+      senderDeviceId: record.senderDeviceId,
+      envelope: record.envelope,
+    )).trim();
+
+    // 2. Intercept and handle control messages without recording them or trusting the sender
+    if (plaintext.startsWith(controlMessagePrefix)) {
+      if (plaintext == controlRemoveConnectionFull) {
+        // Mutual deletion request: remove them from our contacts silently
+        await removePeer(record.senderUserId, notifyPeer: false);
+      }
+      // Consume the signal message without further processing
+      return true;
+    }
+
+    // 3. For normal messages, ensure we trust the sender and record the chat history
     final senderBundle = await _signalService.fetchDeviceBundle(
       userId: record.senderUserId,
       deviceId: record.senderDeviceId,
     );
     await _recordTrustForBundles(<SignalDeviceBundle>[senderBundle]);
-
-    final plaintext = await _signalService.decryptEnvelope(
-      senderUserId: record.senderUserId,
-      senderDeviceId: record.senderDeviceId,
-      envelope: record.envelope,
-    );
 
     await _localStore.upsertMessage(
       LocalChatMessage(
@@ -906,6 +922,7 @@ class SignalMessageRepository {
         identityKeyHash: await _signalService.identityKeyDigest(
           bundle.identityKeyPublicBase64,
         ),
+        label: bundle.userLabel,
       );
     }
   }
@@ -932,7 +949,42 @@ class SignalMessageRepository {
         .get();
   }
 
-  Future<void> removePeer(String userId) async {
+  Future<void> refreshAllPeerLabels() async {
+    final knownPeers = await loadAllKnownPeers();
+    if (knownPeers.isEmpty) {
+      return;
+    }
+
+    // Get unique user IDs to avoid redundant profile fetches
+    final uniqueUserIds = knownPeers.map((p) => p.userId).toSet().toList();
+
+    for (final userId in uniqueUserIds) {
+      try {
+        final bundles = await _signalService.fetchActiveDeviceBundles(
+          userId: userId,
+        );
+        if (bundles.isNotEmpty) {
+          // This will update the local trust record with the latest userLabel from the server
+          await _recordTrustForBundles(bundles);
+        }
+      } catch (_) {
+        // If a specific peer fetch fails, skip and continue with others
+      }
+    }
+  }
+
+  Future<void> removePeer(String userId, {bool notifyPeer = true}) async {
+    if (notifyPeer) {
+      try {
+        await _sendControlMessage(
+          recipientUserId: userId,
+          plaintext: controlRemoveConnectionFull,
+        );
+      } catch (_) {
+        // Best effort signaling: don't block local deletion if network fails
+      }
+    }
+
     final bundles = await _signalService.fetchActiveDeviceBundles(userId: userId);
     for (final bundle in bundles) {
       await _localStore.deleteTrustRecord(userId, bundle.deviceId);
@@ -940,6 +992,22 @@ class SignalMessageRepository {
     // Also clear cryptographic sessions for this user's devices
     await _signalService.signalStore.deleteAllSessions(userId);
     _inboxUpdatesController.add(null);
+  }
+
+  Future<void> _sendControlMessage({
+    required String recipientUserId,
+    required String plaintext,
+  }) async {
+    final conversationId = directConversationId(localUserId, recipientUserId);
+    final messageId =
+        'ctrl_${DateTime.now().millisecondsSinceEpoch}_${_secureRandom.nextInt(0xFFFFFF)}';
+    await _sendFanoutMessage(
+      conversationId: conversationId,
+      messageId: messageId,
+      plaintext: plaintext,
+      messageType: 'control',
+      recipientUserIds: <String>[recipientUserId],
+    );
   }
 
   Future<void> deleteConversation(String conversationId) async {
