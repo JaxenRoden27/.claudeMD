@@ -948,6 +948,7 @@ class SignalMessageRepository {
           .collection('device_messages')
           .where('recipientUserId', isEqualTo: localUserId)
           .where('recipientDeviceId', isEqualTo: localDeviceId)
+          .where('deliveryState', isEqualTo: 'queued')
           .orderBy('createdAt')
           .get();
     }
@@ -956,6 +957,7 @@ class SignalMessageRepository {
         .collectionGroup('device_messages')
         .where('recipientUserId', isEqualTo: localUserId)
         .where('recipientDeviceId', isEqualTo: localDeviceId)
+        .where('deliveryState', isEqualTo: 'queued')
         .orderBy('createdAt')
         .get();
   }

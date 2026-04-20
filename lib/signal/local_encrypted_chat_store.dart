@@ -325,7 +325,8 @@ class LocalEncryptedChatStore {
       SELECT ts.* FROM trust_state ts
       WHERE EXISTS (
         SELECT 1 FROM messages m 
-        WHERE m.sender_user_id = ts.user_id OR m.recipient_user_id = ts.user_id
+        WHERE (m.sender_user_id = ts.user_id OR m.recipient_user_id = ts.user_id)
+        AND m.conversation_id NOT LIKE 'group_%'
       )
       ORDER BY ts.last_seen_at_millis DESC
     ''');
