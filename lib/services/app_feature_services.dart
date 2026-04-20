@@ -125,6 +125,7 @@ class ForumReply {
     required this.authorLabel,
     required this.body,
     required this.createdAt,
+    this.parentReplyId,
   });
 
   final String id;
@@ -132,25 +133,28 @@ class ForumReply {
   final String authorLabel;
   final String body;
   final DateTime createdAt;
+  final String? parentReplyId;
 
   factory ForumReply.fromJson(Map<String, dynamic> json) {
     final ts = json['createdAt'];
     return ForumReply(
-      id: json['id'] as String? ?? '',
+      id: json['id'] as String? ?? json['replyId'] as String? ?? '',
       authorUserId: json['authorUserId'] as String? ?? 'unknown',
       authorLabel: json['authorLabel'] as String? ?? 'Unknown',
       body: json['body'] as String? ?? '',
       createdAt: ts is Timestamp ? ts.toDate() : (ts is int ? DateTime.fromMillisecondsSinceEpoch(ts) : DateTime.now()),
+      parentReplyId: json['parentReplyId'] as String?,
     );
   }
 
   Map<String, dynamic> toJson() {
     return <String, dynamic>{
-      'id': id,
+      'replyId': id,
       'authorUserId': authorUserId,
       'authorLabel': authorLabel,
       'body': body,
       'createdAt': Timestamp.fromDate(createdAt),
+      'parentReplyId': parentReplyId,
     };
   }
 }
@@ -162,6 +166,7 @@ class ForumPost {
     required this.authorLabel,
     required this.body,
     required this.createdAt,
+    this.replyCount = 0,
     this.replies = const <ForumReply>[],
   });
 
@@ -170,6 +175,7 @@ class ForumPost {
   final String authorLabel;
   final String body;
   final DateTime createdAt;
+  final int replyCount;
   final List<ForumReply> replies;
 
   factory ForumPost.fromDoc(DocumentSnapshot<Map<String, dynamic>> doc) {
@@ -188,6 +194,7 @@ class ForumPost {
       authorLabel: data['authorLabel'] as String? ?? 'Unknown',
       body: data['body'] as String? ?? '',
       createdAt: ts is Timestamp ? ts.toDate() : DateTime.now(),
+      replyCount: data['replyCount'] as int? ?? repliesList.length,
       replies: repliesList,
     );
   }
@@ -235,24 +242,45 @@ class ForumsService {
     required String authorUserId,
     required String authorLabel,
     required String body,
+    String? parentReplyId,
   }) async {
     final trimmed = body.trim();
     if (trimmed.isEmpty) {
       throw StateError('Reply cannot be empty.');
     }
 
-    final String generatedId = '${DateTime.now().millisecondsSinceEpoch}_$authorUserId';
+    final postRef = _firestore.collection('forums_posts').doc(postId);
+    final replyRef = postRef.collection('replies').doc();
+    
     final reply = ForumReply(
-      id: generatedId,
+      id: replyRef.id,
       authorUserId: authorUserId,
       authorLabel: authorLabel,
       body: trimmed,
       createdAt: DateTime.now(),
+      parentReplyId: parentReplyId,
     );
 
-    await _firestore.collection('forums_posts').doc(postId).update(<String, dynamic>{
-      'replies': FieldValue.arrayUnion(<dynamic>[reply.toJson()]),
+    final batch = _firestore.batch();
+    batch.set(replyRef, reply.toJson());
+    batch.update(postRef, <String, dynamic>{
+      'replyCount': FieldValue.increment(1),
+      'updatedAt': FieldValue.serverTimestamp(),
     });
+    
+    await batch.commit();
+  }
+
+  Stream<List<ForumReply>> streamReplies(String postId) {
+    return _firestore
+        .collection('forums_posts')
+        .doc(postId)
+        .collection('replies')
+        .orderBy('createdAt', descending: false)
+        .snapshots()
+        .map((snap) => snap.docs
+            .map((doc) => ForumReply.fromJson(doc.data()))
+            .toList(growable: false));
   }
 }
 

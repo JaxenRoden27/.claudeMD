@@ -377,6 +377,20 @@ class SignalMessageRepository {
     return decryptAttachmentPayload(payload, ciphertextBytes);
   }
 
+  Future<List<LocalChatMessage>> loadConversationMessages({
+    required String peerUserId,
+  }) {
+    return _localStore.loadConversationMessages(
+      directConversationId(localUserId, peerUserId),
+    );
+  }
+
+  Future<List<LocalChatMessage>> loadGroupMessages({
+    required String groupId,
+  }) {
+    return _localStore.loadConversationMessages('group_$groupId');
+  }
+
   Future<int> syncPendingMessages({String? peerUserId}) async {
     try {
       final targetConversationId = peerUserId == null
@@ -482,14 +496,6 @@ class SignalMessageRepository {
       return null;
     }
     return messages.last;
-  }
-
-  Future<List<LocalChatMessage>> loadConversationMessages({
-    required String peerUserId,
-  }) {
-    return _localStore.loadConversationMessages(
-      directConversationId(localUserId, peerUserId),
-    );
   }
 
   Future<List<LocalChatMessage>> loadConversationMessagesByConversationId({
@@ -663,6 +669,11 @@ class SignalMessageRepository {
     );
 
     await _runStep('commit encrypted device fanout', batch.commit);
+
+    // Skip local caching for control/signaling messages so they don't clutter the history
+    if (messageType == 'control') {
+      return;
+    }
 
     await _runStep(
       'cache local outgoing plaintext',

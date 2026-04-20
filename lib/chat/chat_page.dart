@@ -1636,18 +1636,24 @@ class _ForumsTabState extends State<_ForumsTab> {
                 children: posts
                     .take(15)
                     .map(
-                      (post) => _ForumPostCard(
+                      (post) => _ForumPostPreviewCard(
                         key: ValueKey(post.id),
                         post: post,
                         user: widget.user,
                         forumsService: widget.forumsService,
-                        isActive: _activeReplyPostId == post.id,
-                        onActivate: () => setState(() => _activeReplyPostId = post.id),
-                        onDeactivate: () => setState(() {
-                          if (_activeReplyPostId == post.id) {
-                            _activeReplyPostId = null;
-                          }
-                        }),
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute<void>(
+                              builder: (context) => _ForumDetailPage(
+                                dark: widget.dark,
+                                user: widget.user,
+                                post: post,
+                                forumsService: widget.forumsService,
+                              ),
+                            ),
+                          );
+                        },
                       ),
                     )
                     .toList(growable: false),
@@ -1660,182 +1666,499 @@ class _ForumsTabState extends State<_ForumsTab> {
   }
 }
 
-class _ForumPostCard extends StatefulWidget {
-  const _ForumPostCard({
+class _ForumPostPreviewCard extends StatelessWidget {
+  const _ForumPostPreviewCard({
     super.key,
     required this.post,
     required this.user,
     required this.forumsService,
-    required this.isActive,
-    required this.onActivate,
-    required this.onDeactivate,
+    required this.onTap,
   });
 
   final ForumPost post;
   final User user;
   final ForumsService forumsService;
-  final bool isActive;
-  final VoidCallback onActivate;
-  final VoidCallback onDeactivate;
-
-  @override
-  State<_ForumPostCard> createState() => _ForumPostCardState();
-}
-
-class _ForumPostCardState extends State<_ForumPostCard> {
-  final TextEditingController _replyController = TextEditingController();
-  bool _isSubmitting = false;
-
-  @override
-  void didUpdateWidget(covariant _ForumPostCard oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (!widget.isActive && oldWidget.isActive) {
-      _replyController.clear();
-    }
-  }
-
-  Future<void> _submitReply() async {
-    final text = _replyController.text.trim();
-    if (text.isEmpty) {
-      widget.onDeactivate();
-      return;
-    }
-
-    setState(() => _isSubmitting = true);
-    try {
-      await widget.forumsService.addReply(
-        postId: widget.post.id,
-        authorUserId: widget.user.uid,
-        authorLabel: widget.user.displayName ?? widget.user.email ?? 'User',
-        body: text,
-      );
-      _replyController.clear();
-      widget.onDeactivate();
-    } catch (_) {
-      // Ignore for MVP
-    } finally {
-      if (mounted) {
-        setState(() => _isSubmitting = false);
-      }
-    }
-  }
-
-  @override
-  void dispose() {
-    _replyController.dispose();
-    super.dispose();
-  }
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            // Parent Post
-            Row(
-              children: [
-                const Icon(Icons.message_outlined, size: 20),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    widget.post.authorLabel,
-                    style: const TextStyle(fontWeight: FontWeight.bold),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              Row(
+                children: [
+                  CircleAvatar(
+                    radius: 12,
+                    backgroundColor: _balticBlue.withValues(alpha: 0.2),
+                    child: const Icon(Icons.person, size: 14, color: _balticBlue),
                   ),
-                ),
-                Text(
-                  '${widget.post.createdAt.hour.toString().padLeft(2, '0')}:${widget.post.createdAt.minute.toString().padLeft(2, '0')}',
-                  style: Theme.of(context).textTheme.labelSmall,
-                ),
-              ],
-            ),
-            const SizedBox(height: 6),
-            Text(widget.post.body),
-            const Divider(height: 24),
-            // Replies list
-            if (widget.post.replies.isNotEmpty) ...[
-              for (final reply in widget.post.replies)
-                Padding(
-                  padding: const EdgeInsets.only(left: 16, bottom: 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const Icon(Icons.reply_rounded, size: 14, color: Colors.grey),
-                          const SizedBox(width: 4),
-                          Text(
-                            reply.authorLabel,
-                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                  const SizedBox(width: 8),
+                  Text(
+                    post.authorLabel,
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                  const Spacer(),
+                  Text(
+                    '${post.createdAt.hour.toString().padLeft(2, '0')}:${post.createdAt.minute.toString().padLeft(2, '0')}',
+                    style: Theme.of(context).textTheme.labelSmall,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                post.body,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 15, height: 1.4),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: _honeyBronze.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.mode_comment_outlined, size: 14, color: _honeyBronze),
+                        const SizedBox(width: 6),
+                        Text(
+                          '${post.replyCount} replies',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: _honeyBronze,
                           ),
-                          const Spacer(),
-                          Text(
-                            '${reply.createdAt.hour.toString().padLeft(2, '0')}:${reply.createdAt.minute.toString().padLeft(2, '0')}',
-                            style: Theme.of(context).textTheme.labelSmall?.copyWith(fontSize: 10),
-                          ),
-                        ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Spacer(),
+                  const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Colors.grey),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ForumDetailPage extends StatefulWidget {
+  const _ForumDetailPage({
+    required this.dark,
+    required this.user,
+    required this.post,
+    required this.forumsService,
+  });
+
+  final bool dark;
+  final User user;
+  final ForumPost post;
+  final ForumsService forumsService;
+
+  @override
+  State<_ForumDetailPage> createState() => _ForumDetailPageState();
+}
+
+class _ForumDetailPageState extends State<_ForumDetailPage> {
+  final TextEditingController _mainComposerController = TextEditingController();
+  final FocusNode _mainFocusNode = FocusNode();
+  String? _activeReplyToId; // ID of the comment being replied to
+  String? _activeReplyToLabel; // Label of the user being replied to
+  bool _isSubmitting = false;
+
+  @override
+  void dispose() {
+    _mainComposerController.dispose();
+    _mainFocusNode.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submitReply(String body, {String? parentReplyId}) async {
+    setState(() => _isSubmitting = true);
+    try {
+      await widget.forumsService.addReply(
+        postId: widget.post.id,
+        authorUserId: widget.user.uid,
+        authorLabel: widget.user.displayName ?? 'User',
+        body: body,
+        parentReplyId: parentReplyId,
+      );
+      _mainComposerController.clear();
+    } catch (_) {
+      // Ignore for MVP
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+          _activeReplyToId = null;
+          _activeReplyToLabel = null;
+        });
+      }
+    }
+  }
+
+  void _onSetReplyTarget(String? id, String? label) {
+    setState(() {
+      _activeReplyToId = id;
+      _activeReplyToLabel = label;
+    });
+    if (id != null) {
+      _mainFocusNode.requestFocus();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: widget.dark ? _bgDark : _bgLight,
+      appBar: AppBar(
+        title: const Text('Post'),
+        centerTitle: true,
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: StreamBuilder<List<ForumReply>>(
+              stream: widget.forumsService.streamReplies(widget.post.id),
+              builder: (context, snapshot) {
+                final newReplies = snapshot.data ?? const <ForumReply>[];
+                
+                // Merge old and new replies, de-duplicating by ID
+                final allRepliesMap = <String, ForumReply>{
+                  for (final r in widget.post.replies) r.id: r,
+                  for (final r in newReplies) r.id: r,
+                };
+                final replies = allRepliesMap.values.toList()
+                  ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+                
+                return ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
+                  children: [
+                    // Main Post Card
+                    Card(
+                      margin: EdgeInsets.zero,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                CircleAvatar(
+                                  radius: 14,
+                                  backgroundColor: _balticBlue.withValues(alpha: 0.2),
+                                  child: const Icon(Icons.person, size: 16, color: _balticBlue),
+                                ),
+                                const SizedBox(width: 10),
+                                Text(
+                                  widget.post.authorLabel,
+                                  style: const TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                                const Spacer(),
+                                Text(
+                                  '${widget.post.createdAt.hour.toString().padLeft(2, '0')}:${widget.post.createdAt.minute.toString().padLeft(2, '0')}',
+                                  style: Theme.of(context).textTheme.labelSmall,
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              widget.post.body,
+                              style: const TextStyle(fontSize: 16, height: 1.5),
+                            ),
+                          ],
+                        ),
                       ),
-                      const SizedBox(height: 2),
-                      Text(reply.body, style: const TextStyle(fontSize: 13)),
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
+                      'COMMENTS',
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.2,
+                        color: Colors.grey,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    if (replies.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 40),
+                        child: Center(
+                          child: Text(
+                            'No comments yet. Be the first to reply!',
+                            style: TextStyle(color: Colors.grey),
+                          ),
+                        ),
+                      )
+                    else
+                      _ThreadedComments(
+                        replies: replies,
+                        activeReplyToId: _activeReplyToId,
+                        onSetReplyTo: _onSetReplyTarget,
+                      ),
+                  ],
+                );
+              },
+            ),
+          ),
+          // Floating Bottom Composer for main thread + replies
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_activeReplyToLabel != null)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  color: _balticBlue.withValues(alpha: 0.1),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.reply_rounded, size: 16, color: _balticBlue),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Replying to ${_activeReplyToLabel}',
+                          style: const TextStyle(
+                            fontSize: 12, 
+                            fontWeight: FontWeight.bold,
+                            color: _balticBlue,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        onPressed: () => _onSetReplyTarget(null, null),
+                        icon: const Icon(Icons.close_rounded, size: 16, color: _balticBlue),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
                     ],
                   ),
                 ),
-              const SizedBox(height: 4),
+              _CommentComposer(
+                controller: _mainComposerController,
+                focusNode: _mainFocusNode,
+                isSubmitting: _isSubmitting,
+                onSubmit: (val) => _submitReply(val, parentReplyId: _activeReplyToId),
+                hint: _activeReplyToLabel != null ? 'Type a reply...' : 'Add a comment...',
+              ),
             ],
-            // Reply composer
-            if (widget.isActive)
-              Focus(
-                onFocusChange: (focused) {
-                  if (!focused && _replyController.text.trim().isEmpty) {
-                    widget.onDeactivate();
-                  }
-                },
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _replyController,
-                        enabled: !_isSubmitting,
-                        decoration: const InputDecoration(
-                          hintText: 'Add a reply...',
-                          isDense: true,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.all(Radius.circular(20)),
-                          ),
-                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        ),
-                        style: const TextStyle(fontSize: 13),
-                        onSubmitted: (_) => _submitReply(),
-                        autofocus: true,
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    IconButton(
-                      icon: const Icon(Icons.send_rounded, size: 18),
-                      constraints: const BoxConstraints(),
-                      padding: const EdgeInsets.all(8),
-                      onPressed: _isSubmitting ? null : _submitReply,
-                    ),
-                  ],
-                ),
-              )
-            else
-              Align(
-                alignment: Alignment.centerLeft,
-                child: TextButton.icon(
-                  onPressed: widget.onActivate,
-                  icon: const Icon(Icons.reply_rounded, size: 16),
-                  label: const Text('Reply'),
-                  style: TextButton.styleFrom(
-                    padding: EdgeInsets.zero,
-                    minimumSize: const Size(60, 32),
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ThreadedComments extends StatelessWidget {
+  const _ThreadedComments({
+    required this.replies,
+    required this.activeReplyToId,
+    required this.onSetReplyTo,
+  });
+
+  final List<ForumReply> replies;
+  final String? activeReplyToId;
+  final void Function(String?, String?) onSetReplyTo;
+
+  @override
+  Widget build(BuildContext context) {
+    // Top-level replies (no parent)
+    final rootReplies = replies.where((r) => r.parentReplyId == null).toList();
+    
+    return Column(
+      children: rootReplies.map((r) => _buildThread(r, 0)).toList(),
+    );
+  }
+
+  Widget _buildThread(ForumReply reply, int depth) {
+    final children = replies.where((r) => r.parentReplyId == reply.id).toList();
+    
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _ThreadedCommentTile(
+          reply: reply,
+          depth: depth,
+          isReplying: activeReplyToId == reply.id,
+          onReply: () => onSetReplyTo(
+            activeReplyToId == reply.id ? null : reply.id,
+            activeReplyToId == reply.id ? null : reply.authorLabel,
+          ),
+        ),
+        if (children.isNotEmpty)
+          ...children.map((child) => _buildThread(child, depth + 1)),
+      ],
+    );
+  }
+}
+
+class _ThreadedCommentTile extends StatelessWidget {
+  const _ThreadedCommentTile({
+    required this.reply,
+    required this.depth,
+    required this.onReply,
+    required this.isReplying,
+  });
+
+  final ForumReply reply;
+  final int depth;
+  final VoidCallback onReply;
+  final bool isReplying;
+
+  @override
+  Widget build(BuildContext context) {
+    const double indentWidth = 16.0;
+    final double leftPadding = 8.0 + (depth * indentWidth);
+    
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: EdgeInsets.only(left: leftPadding),
+      decoration: depth > 0 ? BoxDecoration(
+        border: Border(
+          left: BorderSide(
+            color: Colors.grey.withValues(alpha: 0.3),
+            width: 1.5,
+          ),
+        ),
+      ) : null,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                reply.authorLabel,
+                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                '${reply.createdAt.hour.toString().padLeft(2, '0')}:${reply.createdAt.minute.toString().padLeft(2, '0')}',
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(reply.body, style: const TextStyle(fontSize: 14)),
+          const SizedBox(height: 4),
+          TextButton.icon(
+            onPressed: onReply,
+            icon: Icon(
+              isReplying ? Icons.close_rounded : Icons.reply_rounded, 
+              size: 14, 
+              color: _balticBlue,
+            ),
+            label: Text(
+              isReplying ? 'Cancel' : 'Reply',
+              style: const TextStyle(fontSize: 12, color: _balticBlue),
+            ),
+            style: TextButton.styleFrom(
+              padding: EdgeInsets.zero,
+              minimumSize: const Size(50, 30),
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CommentComposer extends StatefulWidget {
+  const _CommentComposer({
+    required this.onSubmit,
+    required this.isSubmitting,
+    required this.hint,
+    this.controller,
+    this.focusNode,
+    this.compact = false,
+  });
+
+  final void Function(String) onSubmit;
+  final bool isSubmitting;
+  final String hint;
+  final TextEditingController? controller;
+  final FocusNode? focusNode;
+  final bool compact;
+
+  @override
+  State<_CommentComposer> createState() => _CommentComposerState();
+}
+
+class _CommentComposerState extends State<_CommentComposer> {
+  late final TextEditingController _internalController;
+  
+  @override
+  void initState() {
+    super.initState();
+    _internalController = widget.controller ?? TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    if (widget.controller == null) {
+      _internalController.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.fromLTRB(
+        16, 
+        widget.compact ? 4 : 10, 
+        16, 
+        widget.compact ? 4 : 10 + MediaQuery.of(context).viewInsets.bottom
+      ),
+      color: widget.compact ? Colors.transparent : Theme.of(context).cardColor,
+      child: SafeArea(
+        top: false,
+        child: Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _internalController,
+                focusNode: widget.focusNode,
+                enabled: !widget.isSubmitting,
+                minLines: 1,
+                maxLines: 4,
+                style: TextStyle(fontSize: widget.compact ? 13 : 15),
+                decoration: InputDecoration(
+                  hintText: widget.hint,
+                  isDense: true,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
+                    borderSide: BorderSide.none,
                   ),
+                  filled: true,
+                  fillColor: Colors.grey.withValues(alpha: 0.1),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                 ),
               ),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              icon: Icon(Icons.send_rounded, color: _balticBlue, size: widget.compact ? 20 : 24),
+              onPressed: widget.isSubmitting ? null : () {
+                final val = _internalController.text.trim();
+                if (val.isNotEmpty) {
+                  widget.onSubmit(val);
+                }
+              },
+            ),
           ],
         ),
       ),
@@ -2257,50 +2580,31 @@ class _GroupDetailPageState extends State<_GroupDetailPage> {
       return;
     }
 
-    final memberIds =
-        (_members.isEmpty
-                ? widget.group.memberUserIds
-                : _members.map((member) => member.userId))
-            .where((userId) => userId != widget.user.uid)
-            .toSet()
-            .toList(growable: false);
+    final localMessages = await repository.loadGroupMessages(
+      groupId: widget.group.id,
+    );
 
-    if (memberIds.isEmpty) {
-      if (mounted) {
-        setState(() {
-          _messages = const <_GroupMessageView>[];
-        });
-      }
-      return;
-    }
-
-    final deduped = <String, _GroupMessageView>{};
-
-    for (final peerUserId in memberIds) {
-      final peerMessages = await repository.loadConversationMessages(
-        peerUserId: peerUserId,
+    final List<_GroupMessageView> views = localMessages.map((msg) {
+      // For backward compatibility, try to parse old mirrored envelopes
+      // But for new messages, they will just be plain text stored with the group ID
+      final payload = _parseGroupEnvelope(msg.plaintext);
+      
+      return _GroupMessageView(
+        groupMessageId: payload?.groupMessageId ?? msg.messageId,
+        senderUserId: msg.senderUserId,
+        body: payload?.body ?? msg.plaintext,
+        createdAt: msg.createdAt,
+        deliveryState: msg.deliveryState,
+        outgoing: msg.senderUserId == widget.user.uid,
       );
+    }).toList();
 
-      for (final localMessage in peerMessages) {
-        final payload = _parseGroupEnvelope(localMessage.plaintext);
-        if (payload == null || payload.groupId != widget.group.id) {
-          continue;
-        }
-
-        final candidate = _GroupMessageView(
-          groupMessageId: payload.groupMessageId,
-          senderUserId: localMessage.senderUserId,
-          body: payload.body,
-          createdAt: localMessage.createdAt,
-          deliveryState: localMessage.deliveryState,
-          outgoing: localMessage.senderUserId == widget.user.uid,
-        );
-
-        final existing = deduped[payload.groupMessageId];
-        if (existing == null ||
-            candidate.createdAt.isBefore(existing.createdAt)) {
-          deduped[payload.groupMessageId] = candidate;
-        }
+    // De-duplicate if there are any overlaps (e.g. from transition period)
+    final deduped = <String, _GroupMessageView>{};
+    for (final view in views) {
+      final existing = deduped[view.groupMessageId];
+      if (existing == null || view.createdAt.isAfter(existing.createdAt)) {
+        deduped[view.groupMessageId] = view;
       }
     }
 
@@ -2345,46 +2649,23 @@ class _GroupDetailPageState extends State<_GroupDetailPage> {
       _busy = true;
     });
 
-    final groupMessageId = FirebaseFirestore.instance
-        .collection('_group_message_ids')
-        .doc()
-        .id;
-    final payload = _encodeGroupEnvelope(
-      groupId: widget.group.id,
-      groupMessageId: groupMessageId,
-      body: text,
-    );
-
-    final failures = <String>[];
-    for (final recipientUserId in recipients) {
-      try {
-        await repository.sendTextMessage(
-          peerUserId: recipientUserId,
-          plaintext: payload,
-        );
-      } catch (_) {
-        failures.add(recipientUserId);
+    try {
+      await repository.sendGroupTextMessage(
+        groupId: widget.group.id,
+        memberUserIds: recipients,
+        plaintext: text,
+      );
+      _composerController.clear();
+      await _reloadMessages();
+      _setStatus('Sent secure group message.');
+    } catch (error) {
+      _setStatus('Send failed: $error');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+        });
       }
-    }
-
-    _composerController.clear();
-    await _reloadMessages();
-
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      _busy = false;
-    });
-
-    if (failures.isEmpty) {
-      _setStatus(
-        'Sent secure group message to ${recipients.length} member(s).',
-      );
-    } else {
-      _setStatus(
-        'Sent with partial failures. Could not deliver to: ${failures.join(', ')}',
-      );
     }
   }
 
@@ -2418,48 +2699,28 @@ class _GroupDetailPageState extends State<_GroupDetailPage> {
     }
 
     final imageBytes = await selected.readAsBytes();
-    final groupMessageId = FirebaseFirestore.instance
-        .collection('_group_message_ids')
-        .doc()
-        .id;
 
     setState(() {
       _busy = true;
     });
 
-    final failures = <String>[];
-    for (final recipientUserId in recipients) {
-      try {
-        await repository.sendEncryptedImageMessage(
-          peerUserId: recipientUserId,
-          imageBytes: imageBytes,
-          mimeType: selected.mimeType ?? 'image/jpeg',
-          wrapPlaintext: (payload) => _encodeGroupEnvelope(
-            groupId: widget.group.id,
-            groupMessageId: groupMessageId,
-            body: payload,
-          ),
-        );
-      } catch (_) {
-        failures.add(recipientUserId);
-      }
-    }
-
-    await _reloadMessages();
-    if (!mounted) {
-      return;
-    }
-
-    setState(() {
-      _busy = false;
-    });
-
-    if (failures.isEmpty) {
-      _setStatus('Sent encrypted image to ${recipients.length} member(s).');
-    } else {
-      _setStatus(
-        'Image sent with partial failures. Could not deliver to: ${failures.join(', ')}',
+    try {
+      await repository.sendGroupEncryptedImageMessage(
+        groupId: widget.group.id,
+        memberUserIds: recipients,
+        imageBytes: imageBytes,
+        mimeType: selected.mimeType ?? 'image/jpeg',
       );
+      await _reloadMessages();
+      _setStatus('Sent encrypted image to group.');
+    } catch (error) {
+      _setStatus('Image send failed: $error');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+        });
+      }
     }
   }
 
